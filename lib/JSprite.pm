@@ -1,7 +1,7 @@
 #!/usr/local/bin/perl5
 
 ##++
-##    JSprite v1.12
+##    JSprite v1.14
 ##    Sprite v.3.2
 ##    Last modified: August 22, 1998
 ##
@@ -443,7 +443,6 @@ for finding bugs and offering suggestions:
 =cut
 
 ###############################################################################
-
 package JSprite;
 
 require 5.002;
@@ -476,236 +475,267 @@ my $STRINGTYPES = '^(VARCHAR2|CHAR|VARCHAR|DATE|LONG|BLOB|MEMO)$';
 
 sub new
 {
-    my $class = shift;
-    my $self;
+	my $class = shift;
+	my $self;
+	
+	$self =
+	{
+		commands     => 'select|update|delete|alter|insert|create|drop',
+				column       => '[A-Za-z0-9\~\x80-\xFF][\w\x80-\xFF]+',
+				_select      => '[\w\x80-\xFF\*,\s\~]+',
+				path         => '[\w\x80-\xFF\-\/\.\:\~\\\\]+',
+				table        => '',
+				file         => '',
+				ext          => '',      #JWT:ADD FILE EXTENSIONS.
+				directory    => '',
+				timestamp    => 0,
+				_read        => ',',
+				_write       => ',',
+				_record      => "\n",    #JWT:SUPPORT ANY RECORD-SEPARATOR!
+				fields       => {},
+				use_fields   => '',
+				key_fields   => '',
+				order        => [],
+				types        => {},
+				lengths      => {},
+				scales       => {},
+				defaults     => {},
+				records      => [],
+				platform     => 'Unix',
+				fake_lock    => 0,
+				default_lock => 'Sprite.lck',
+				lock_file    => '',
+				lock_handle  => '',
+				default_try  => 10,
+				lock_try     => '',
+				lock_sleep   => 1,
+				errors       => {},
+				lasterror    => 0,     #JWT:  ADDED FOR ERROR-CONTROL
+				lastmsg      => '',
+				CaseTableNames  => 0,    #JWT:  19990991 TABLE-NAME CASE-SENSITIVITY?
+				LongTruncOk  => 0,     #JWT: 19991104: ERROR OR NOT IF TRUNCATION.
+				RaiseError   => 0,     #JWT: 20000114: ADDED DBI RAISEERROR HANDLING.
+				silent       => 0,
+				dirty			 => 0      #JWT: 20000229: PREVENT NEEDLESS RECOMMITS.
+	}
+	;
+	
+	$self->{separator} = { Unix  => '/',    Mac => ':',   #JWT: BUGFIX.
+			PC	=> '\\\\', VMS => '/' }
+;
 
-    $self = {
-                commands     => 'select|update|delete|alter|insert|create|drop',
-                column       => '[A-Za-z0-9\~\x80-\xFF][\w\x80-\xFF]+',
-		_select      => '[\w\x80-\xFF\*,\s\~]+',
-		path         => '[\w\x80-\xFF\-\/\.\:\~\\\\]+',
-		table        => '',
-		file         => '',
-		ext          => '',      #JWT:ADD FILE EXTENSIONS.
-		directory    => '',
-		timestamp    => 0,
-		_read        => ',',
-		_write       => ',',
-		_record      => "\n",    #JWT:SUPPORT ANY RECORD-SEPARATOR!
-		fields       => {},
-		use_fields   => '',
-		key_fields   => '',
-		order        => [],
-		types        => {},
-		lengths      => {},
-		scales       => {},
-		defaults     => {},
-		records      => [],
-		platform     => 'Unix',
-		fake_lock    => 0,
-		default_lock => 'Sprite.lck',
-		lock_file    => '',
-		lock_handle  => '',
-		default_try  => 10,
-		lock_try     => '',
-                lock_sleep   => 1,
-		errors       => {},
-		lasterror    => 0,     #JWT:  ADDED FOR ERROR-CONTROL
-		lastmsg      => '',
-		CaseTableNames  => 0,    #JWT:  19990991 TABLE-NAME CASE-SENSITIVITY?
-		LongTruncOk  => 0,     #JWT: 19991104: ERROR OR NOT IF TRUNCATION.
-		RaiseError   => 0,     #JWT: 20000114: ADDED DBI RAISEERROR HANDLING.
-		silent       => 0,
-		dirty			 => 0      #JWT: 20000229: PREVENT NEEDLESS RECOMMITS.
-	    };
+bless $self, $class;
 
-    $self->{separator} = { Unix  => '/',    Mac => ':',   #JWT: BUGFIX.
-		   PC    => '\\\\', VMS => '/' };
-
-    bless $self, $class;
-
-    $self->initialize;
-    return $self;
+$self->initialize;
+return $self;
 }
 
 sub initialize
 {
-    my $self = shift;
-
-    $self->define_errors;
-    $self->set_os ($^O) if (defined $^O);
+	my $self = shift;
+	
+	$self->define_errors;
+	$self->set_os ($^O) if (defined $^O);
 }
 
 sub set_delimiter
 {
-    my ($self, $type, $delimiter) = @_;
-    $type      ||= 'other';
-    $delimiter ||= $self->{_read} || $self->{_write};
-
-    $type =~ s/^-//;
-    $type =~ tr/A-Z/a-z/;
-
-    if ($type eq 'read') {
-	$self->{_read} = $delimiter;
-    } elsif ($type eq 'write') {
-	$self->{_write} = $delimiter;
-    } elsif ($type eq 'record') {    #JWT:SUPPORT ANY RECORD-SEPARATOR!
-	###$delimiter =~ s/^\r//  if ($self->{platform} eq 'PC');  #20000403 (BINMODE HANDLES THIS!!!)
-	$self->{_record} = $delimiter;
-    } else {
-	$self->{_read} = $self->{_write} = $delimiter;
-    }
-
-    return (1);
+	my ($self, $type, $delimiter) = @_;
+	$type      ||= 'other';
+	$delimiter ||= $self->{_read} || $self->{_write};
+	
+	$type =~ s/^-//;
+	$type =~ tr/A-Z/a-z/;
+	
+	if ($type eq 'read')
+	{
+		$self->{_read} = $delimiter;
+	}
+	elsif ($type eq 'write')
+	{
+		$self->{_write} = $delimiter;
+	}
+	elsif ($type eq 'record')
+	{#JWT:SUPPORT ANY RECORD-SEPARATOR!
+		###$delimiter =~ s/^\r//  if ($self->{platform} eq 'PC');  #20000403 (BINMODE HANDLES THIS!!!)
+		$self->{_record} = $delimiter;
+	}
+	else
+	{
+		$self->{_read} = $self->{_write} = $delimiter;
+	}
+	
+	return (1);
 }
 
 sub set_os
 {
-    my ($self, $platform) = @_;
-    #$platform = 'Unix', return unless ($platform);  #20000403.
-    return $self->{platform}  unless ($platform);    #20000403
-
-    $platform =~ s/\s//g;
-
-#    if ($platform =~ /^(?:OS2|(?:Win)?NT|Win(?:dows)?95|(?:MS)?DOS)$/i) {
-#	$self->{platform} = '';      #20000403
-    if ($platform =~ /(OS2|Win|DOS)/i) {  #20000403
-	$self->{platform} = 'PC';
-    } elsif ($platform =~ /^Mac(?:OS|intosh)?$/i) {
-	$self->{platform} = 'Mac';
-    } elsif ($platform =~ /^VMS$/i) {
-	$self->{platform} = 'VMS';
-    } else {
-	$self->{platform} = 'Unix';
-    }
-    return (1);
+	my ($self, $platform) = @_;
+	#$platform = 'Unix', return unless ($platform);  #20000403.
+	return $self->{platform}  unless ($platform);    #20000403
+	
+	$platform =~ s/\s//g;
+	
+	#    if ($platform =~ /^(?:OS2|(?:Win)?NT|Win(?:dows)?95|(?:MS)?DOS)$/i) {
+	#	$self->{platform} = '';      #20000403
+	if ($platform =~ /(OS2|Win|DOS)/i)
+	{#20000403
+		$self->{platform} = 'PC';
+	}
+	elsif ($platform =~ /^Mac(?:OS|intosh)?$/i)
+	{
+		$self->{platform} = 'Mac';
+	}
+	elsif ($platform =~ /^VMS$/i)
+	{
+		$self->{platform} = 'VMS';
+	}
+	else
+	{
+		$self->{platform} = 'Unix';
+	}
+	return (1);
 }
 
 sub set_db_dir
 {
-    my ($self, $directory) = @_;
-    return (0) unless ($directory);
-
-    stat ($directory);
-
-    #if ( (-d _) && (-e _) && (-r _) && (-w _) ) {  #20000103: REMD WRITABLE REQUIREMENT!
-    if ( (-d _) && (-e _) && (-r _) ) {
-	$self->{directory} = $directory;
-	return (1);
-    } else {
-	return (0);
-    }
+	my ($self, $directory) = @_;
+	return (0) unless ($directory);
+	
+	stat ($directory);
+	
+	#if ( (-d _) && (-e _) && (-r _) && (-w _) ) {  #20000103: REMD WRITABLE REQUIREMENT!
+	if ( (-d _) && (-e _) && (-r _) )
+	{
+		$self->{directory} = $directory;
+		return (1);
+	}
+	else
+	{
+		return (0);
+	}
 }
 
 sub set_db_ext      #JWT:ADD FILE EXTENSIONS.
 {
-    my ($self, $ext) = @_;
-
-    return (0) unless ($ext);
-
-    stat ($ext);
-
+	my ($self, $ext) = @_;
+	
+	return (0) unless ($ext);
+	
+	stat ($ext);
+	
 	$self->{ext} = $ext;
 	return (1);
 }
 
 sub get_path_info
 {
-    my ($self, $file) = @_;
-    my ($separator, $path, $name, $full);
-
-    $separator = $self->{separator}->{ $self->{platform} };
-
-    ($path, $name) = $file =~ m|(.*?)([^$separator]+)$|o;
-
+	my ($self, $file) = @_;
+	my ($separator, $path, $name, $full);
+	
+	$separator = $self->{separator}->{ $self->{platform} };
+	
+	($path, $name) = $file =~ m|(.*?)([^$separator]+)$|o;
+	
 	$name =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
-
-    if ($path) {
-	$full  = $file;
-    } else {
-	#$path  = $self->{directory} || fastcwd;
-	$path  = $self->{directory};
-	$path .= $separator;
-	$full  = $path . $name;
-    }
-
-    return wantarray ? ($path, $name) : $full;
+	
+	if ($path)
+	{
+		$full  = $file;
+	}
+	else
+	{
+		#$path  = $self->{directory} || fastcwd;
+		$path  = $self->{directory};
+		$path .= $separator;
+		$full  = $path . $name;
+	}
+	
+	return wantarray ? ($path, $name) : $full;
 }
 
 sub set_lock_file
 {
-    my ($self, $file, $lock_try) = @_;
-
-    if (!$file || !$lock_try) {
-	return (0);
-    } else {
-	$self->{lock_file} = $file;
-	$self->{lock_try}  = $lock_try;
-    
-	return (1);
-    }
+	my ($self, $file, $lock_try) = @_;
+	
+	if (!$file || !$lock_try)
+	{
+		return (0);
+	}
+	else
+	{
+		$self->{lock_file} = $file;
+		$self->{lock_try}  = $lock_try;
+		
+		return (1);
+	}
 }
 
 sub lock
 {
-    my $self = shift;
-    my $count;
-
-    $self->{lock_file} ||= $self->{default_lock}; 
-    $self->{lock_file}   = $self->get_path_info ($self->{lock_file});
-    $self->{lock_try}  ||= $self->{default_try};
-
-    local *FILE;
-
-    $count = 0;
-
-    while (++$count <= $self->{lock_try}) {	
-	if (sysopen (FILE, $self->{lock_file}, 
-		           O_WRONLY|O_EXCL|O_CREAT, 0644)) {
-
-	    $self->{fake_lock}   = 1;
-	    $self->{lock_handle} = *FILE;
-
-	    last;
-	} else {
-	    select (undef, undef, undef, $self->{lock_sleep});
+	my $self = shift;
+	my $count;
+	
+	$self->{lock_file} ||= $self->{default_lock}; 
+	$self->{lock_file}   = $self->get_path_info ($self->{lock_file});
+	$self->{lock_try}  ||= $self->{default_try};
+	
+	local *FILE;
+	
+	$count = 0;
+	
+	while (++$count <= $self->{lock_try})
+	{
+		if (sysopen (FILE, $self->{lock_file}, 
+				O_WRONLY|O_EXCL|O_CREAT, 0644))
+		{
+			
+			$self->{fake_lock}   = 1;
+			$self->{lock_handle} = *FILE;
+			
+			last;
+		}
+		else
+		{
+			select (undef, undef, undef, $self->{lock_sleep});
+		}
 	}
-    }
-
-    return $self->{fake_lock};
+	
+	return $self->{fake_lock};
 }
 
 sub unlock
 {
-    my $self = shift;
-
-    if ($self->{fake_lock}) {
-
-	close ($self->{lock_handle}) || return (0);
-	unlink ($self->{lock_file})  || return (0);
+	my $self = shift;
 	
-	$self->{fake_lock}   = 0;
-	$self->{lock_handle} = '';
-
-    }
-
-    return (1);
+	if ($self->{fake_lock})
+	{
+		
+		close ($self->{lock_handle}) || return (0);
+		unlink ($self->{lock_file})  || return (0);
+		
+		$self->{fake_lock}   = 0;
+		$self->{lock_handle} = '';
+		
+	}
+	
+	return (1);
 }
 
 sub sql
 {
-    my ($self, $query) = @_;
-
-    my ($command, $status);
-
-    return wantarray ? () : -514  unless ($query);
-
+	my ($self, $query) = @_;
+	
+	my ($command, $status);
+	
+	return wantarray ? () : -514  unless ($query);
+	
 	$self->{lasterror} = 0;
 	$self->{lastmsg} = '';
-    $query   =~ s/\n/ /gs;
-    $query   =~ s/^\s*(.*?)\s*$/$1/;
-    $command = '';
-
+	$query   =~ s/\n/ /gs;
+	$query   =~ s/^\s*(.*?)\s*$/$1/;
+	$command = '';
+	
 	if ($query =~ /^($self->{commands})/io)
 	{
 		$command = $1;
@@ -714,7 +744,7 @@ sub sql
 		if (ref ($status) eq 'ARRAY')
 		{     #SELECT RETURNED OK (LIST OF RECORDS).
 			#unshift (@$status, 1);
-
+			
 			return wantarray ? @$status : $status;
 		}
 		else
@@ -739,11 +769,11 @@ sub sql
 
 sub display_error
 {	
-    my ($self, $error) = @_;
-
-    $other = $@ || $! || 'None';
-
-    print STDERR <<Error_Message  unless ($self->{silent});
+	my ($self, $error) = @_;
+	
+	$other = $@ || $! || 'None';
+	
+	print STDERR <<Error_Message  unless ($self->{silent});
 
 Oops! Sprite encountered the following error when processing your request:
 
@@ -755,48 +785,49 @@ Here's some more information to help you:
     $other
 
 Error_Message
-
-#JWT:  ADDED FOR ERROR-CONTROL.
-
+	
+	#JWT:  ADDED FOR ERROR-CONTROL.
+	
 	$self->{lasterror} = $error;
 	$self->{lastmsg} = "$error:" . $self->{errors}->{$error};
 	$self->{lastmsg} .= '('.$errdetails.')'  if ($errdetails);  #20000114
-
+	
 	$errdetails = '';   #20000114
 	die $self->{lastmsg}  if ($self->{RaiseError});  #20000114.
-
-    return (1);
+	
+	return (1);
 }
 
 sub commit
 {
-    my ($self, $file) = @_;
-    my ($status, $full_path);
-
-    $status = 1;
-    return $status  unless ($self->{dirty});
-
-    if ($file) {
-	$full_path = $self->get_path_info ($file);
-	$full_path .= $self->{ext}  if ($self->{ext});  #JWT:ADD FILE EXTENSIONS.
-	$status    = $self->write_file ($full_path);
-
-	$self->display_error ($status) if ($status <= 0);
-    }
-
+	my ($self, $file) = @_;
+	my ($status, $full_path);
+	
+	$status = 1;
+	return $status  unless ($self->{dirty});
+	
+	if ($file)
+	{
+		$full_path = $self->get_path_info ($file);
+		$full_path .= $self->{ext}  if ($self->{ext});  #JWT:ADD FILE EXTENSIONS.
+		$status    = $self->write_file ($full_path);
+		
+		$self->display_error ($status) if ($status <= 0);
+	}
+	
 	return undef  if ($status <= 0);   #ADDED 20000103
 	$self->{dirty} = 0;
-    return $status;
+	return $status;
 }
 
 sub xclose
 {
-    my ($self, $file) = @_;
+	my ($self, $file) = @_;
 	
 	$status = $self->commit($file);
-    undef $self;
-
-    return $status;
+	undef $self;
+	
+	return $status;
 }
 
 ##++
@@ -805,47 +836,47 @@ sub xclose
 
 sub define_errors
 {
-    my $self = shift;
-    my $errors;
-
-    $errors = {};
-
-    $errors->{'-501'} = 'Could not open specified database.';
-    $errors->{'-502'} = 'Specified column(s) not found.';
-    $errors->{'-503'} = 'Incorrect format in [select] statement.';
-    $errors->{'-504'} = 'Incorrect format in [update] statement.';
-    $errors->{'-505'} = 'Incorrect format in [delete] statement.';
-    $errors->{'-506'} = 'Incorrect format in [add/drop column] statement.';
-    $errors->{'-507'} = 'Incorrect format in [alter table] statement.';
-    $errors->{'-508'} = 'Incorrect format in [insert] command.';
-    $errors->{'-509'} = 'The no. of columns does not match no. of values.';
-    $errors->{'-510'} = 'A severe error! Check your query carefully.';
-    $errors->{'-511'} = 'Cannot write the database to output file.';
-    $errors->{'-512'} = 'Unmatched quote in expression.';
-    $errors->{'-513'} = 'Need to open the database first!';
-    $errors->{'-514'} = 'Please specify a valid query.';
-    $errors->{'-515'} = 'Cannot get lock on database file.';
-    $errors->{'-516'} = 'Cannot delete temp. lock file.';
-    $errors->{'-517'} = "Built-in function failed ($@).";
-    $errors->{'-518'} = "Unique Key Constraint violated.";  #JWT.
-    $errors->{'-519'} = "Field would have to be truncated.";  #JWT.
-    $errors->{'-520'} = "Can not create existing table (drop first!).";  #20000225 JWT.
-    $errors->{'-521'} = "Can not change datatype on non-empty table.";  #20000323 JWT.
-    $errors->{'-522'} = "Can not decrease field-size on non-empty table.";  #20000323 JWT.
-
-    $self->{errors} = $errors;
-
-    return (1);
+	my $self = shift;
+	my $errors;
+	
+	$errors = {};
+	
+	$errors->{'-501'} = 'Could not open specified database.';
+	$errors->{'-502'} = 'Specified column(s) not found.';
+	$errors->{'-503'} = 'Incorrect format in [select] statement.';
+	$errors->{'-504'} = 'Incorrect format in [update] statement.';
+	$errors->{'-505'} = 'Incorrect format in [delete] statement.';
+	$errors->{'-506'} = 'Incorrect format in [add/drop column] statement.';
+	$errors->{'-507'} = 'Incorrect format in [alter table] statement.';
+	$errors->{'-508'} = 'Incorrect format in [insert] command.';
+	$errors->{'-509'} = 'The no. of columns does not match no. of values.';
+	$errors->{'-510'} = 'A severe error! Check your query carefully.';
+	$errors->{'-511'} = 'Cannot write the database to output file.';
+	$errors->{'-512'} = 'Unmatched quote in expression.';
+	$errors->{'-513'} = 'Need to open the database first!';
+	$errors->{'-514'} = 'Please specify a valid query.';
+	$errors->{'-515'} = 'Cannot get lock on database file.';
+	$errors->{'-516'} = 'Cannot delete temp. lock file.';
+	$errors->{'-517'} = "Built-in function failed ($@).";
+	$errors->{'-518'} = "Unique Key Constraint violated.";  #JWT.
+	$errors->{'-519'} = "Field would have to be truncated.";  #JWT.
+	$errors->{'-520'} = "Can not create existing table (drop first!).";  #20000225 JWT.
+	$errors->{'-521'} = "Can not change datatype on non-empty table.";  #20000323 JWT.
+	$errors->{'-522'} = "Can not decrease field-size on non-empty table.";  #20000323 JWT.
+	
+	$self->{errors} = $errors;
+	
+	return (1);
 }
 
 sub parse_expression
 {
-    my ($self, $query) = @_;
-    return unless ($query);
-    my ($column, @strings, %numopmap, %stropmap, $numops, $strops, $special);
+	my ($self, $query) = @_;
+	return unless ($query);
+	my ($column, @strings, %numopmap, %stropmap, $numops, $strops, $special);
 	my ($colmlist) = join('|',@{$self->{order}});
-	my ($psuedocols) = "CURVAL|NEXTVAL";
-
+	my ($psuedocols) = "CURRVAL|NEXTVAL";
+	
 	unless ($colmlist =~ /\S/)
 	{
 		local (*FILE);
@@ -860,181 +891,191 @@ sub parse_expression
 		@{$self->{order}} = split(/\|/, $colmlist);
 		close FILE;
 	}
-    $column    = $self->{column};
-    @strings   = ();
-
-    %numopmap  = ( '=' => 'eq', '==' => 'eq', '>=' => 'ge', '<=' => 'le',
-                   '>' => 'gt', '<'  => 'lt', '!=' => 'ne', '<>' => 'ne');
-    %stropmap  = ( 'eq' => '==', 'ge' => '>=', 'le' => '<=', 'gt' => '>',
-	           'lt' => '<',  'ne' => '!=' , '=' => '==');
-
-    $numops    = join '|', keys %numopmap;
-    $strops    = join '|', keys %stropmap;
-
-    $special   = "$strops|and|or";
+	$column    = $self->{column};
+	@strings   = ();
+	
+	%numopmap  = ( '=' => 'eq', '==' => 'eq', '>=' => 'ge', '<=' => 'le',
+			'>' => 'gt', '<'  => 'lt', '!=' => 'ne', '<>' => 'ne');
+	%stropmap  = ( 'eq' => '==', 'ge' => '>=', 'le' => '<=', 'gt' => '>',
+			'lt' => '<',  'ne' => '!=' , '=' => '==');
+	
+	$numops    = join '|', keys %numopmap;
+	$strops    = join '|', keys %stropmap;
+	
+	$special   = "$strops|and|or";
 	#NOTE!:  NEVER USE ANY VALUE OF $special AS A COLUMN NAME IN YOUR TABLES!!
-
-    ##++
-    ##  The expression: "([^"\\]*(\\.[^"\\]*)*)" was provided by
-    ##  Jeffrey Friedl. Thanks Jeffrey!
-    ##--
-
-#$query =~ s/\'\'/\\\'/g;    #CONVERT ALL '' TO \'.
-#$query =~ s#\b($column)\s*($numops)\s*\'\'\'#$1 $2 \'\\\'#go;   #FIX "op '''..." TO "op '\'..."
-#$query =~ s/([^\\])\'\'\'/$1\\\'\'/g;    #FIX "'''   " TO "\''   "
-$query =~ s/\\\\/\x02/g;    #PROTECT "\\"
-#$query =~ s/\\\'/\x03/g;    #PROTECT "", \", '', AND \'.
-$query =~ s/\\\'|\'\'/\x03/g;   #20000201  #PROTECT "", \", '', AND \'.
-#$query =~ s/\\\"|\"\"/\x04/g;   #REMOVED 20000303.
-
-my ($i, $j, $j2, $k);
-while (1)
-{
-	$i = 0;
-	$i = ($query =~ s|(\w)\s+not\s+like\s+|$1 !^ |i);
-	$i = ($query =~ s|(\w)\s+like\s+|$1 =^ |i)  unless ($i);
-	if ($i)
+	
+	##++
+	##  The expression: "([^"\\]*(\\.[^"\\]*)*)" was provided by
+	##  Jeffrey Friedl. Thanks Jeffrey!
+	##--
+	
+	#$query =~ s/\'\'/\\\'/g;    #CONVERT ALL '' TO \'.
+	#$query =~ s#\b($column)\s*($numops)\s*\'\'\'#$1 $2 \'\\\'#go;   #FIX "op '''..." TO "op '\'..."
+	#$query =~ s/([^\\])\'\'\'/$1\\\'\'/g;    #FIX "'''   " TO "\''   "
+	$query =~ s/\\\\/\x02/g;    #PROTECT "\\"
+	#$query =~ s/\\\'/\x03/g;    #PROTECT "", \", '', AND \'.
+	$query =~ s/\\\'|\'\'/\x03/g;   #20000201  #PROTECT "", \", '', AND \'.
+	#$query =~ s/\\\"|\"\"/\x04/g;   #REMOVED 20000303.
+	
+	my ($i, $j, $j2, $k);
+	while (1)
 	{
-		#if ($query =~ /(\^\s*["'])([^"\\]*(\\.[^"\\]*)*)/)
-		if ($query =~ /(\^\s*)(["'])(.*?)\2/)
+		$i = 0;
+		$i = ($query =~ s|(\w)\s+not\s+like\s+|$1 !^ |i);
+		$i = ($query =~ s|(\w)\s+like\s+|$1 =^ |i)  unless ($i);
+		if ($i)
 		{
-			$j = "$1$2";   #EVERYTHING BEFORE THE QUOTE (DELIMITER), INCLUSIVE
-			$i = $3;       #THE STUFF BETWEEN THE QUOTES.
-			my $iquoted = $i;    #ADDED 20000816 TO FIX "LIKE 'X.%'" (X\.%)!
-			$iquoted =~ s/([\\\|\(\)\[\{\^\$\*\+\?\.])/\\$1/g;
-			my ($k) = "\^$iquoted\$";
-			$k =~ s/^\^%//;
-			$k =~ s/%\$$//;
-			$j2 = $j;
-			$j2 =~ s/^\^/~/;   #CHANGE SPECIAL OPERATORS (=^ AND !^) BACK TO (=~ AND !~).
-			$k =~ s/_/./g;
-			$query =~ s/\Q$j$i\E/$j2$k/;
+			#if ($query =~ /(\^\s*["'])([^"\\]*(\\.[^"\\]*)*)/)
+#print "<BR>-bef: query=$query=\n";
+			#if ($query =~ /(\^\s*)(["'])(.*?)\2/)
+			if ($query =~ /([\=\!]\^\s*)(["'])(.*?)\2/)  #20001010
+			{
+				$j = "$1$2";   #EVERYTHING BEFORE THE QUOTE (DELIMITER), INCLUSIVE
+				$i = $3;       #THE STUFF BETWEEN THE QUOTES.
+				my $iquoted = $i;    #ADDED 20000816 TO FIX "LIKE 'X.%'" (X\.%)!
+				$iquoted =~ s/([\\\|\(\)\[\{\^\$\*\+\?\.])/\\$1/g;
+				my ($k) = "\^$iquoted\$";
+#print "<BR>i=$i= j=$j= iq=$iquoted= k=$k=\n";
+				$k =~ s/^\^%//;
+				$k =~ s/%\$$//;
+				$j2 = $j;
+				#$j2 =~ s/^\^/~/;   #CHANGE SPECIAL OPERATORS (=^ AND !^) BACK TO (=~ AND !~).
+				$j2 =~ s/^(.)\^/$1~/;   #20001010 CHANGE SPECIAL OPERATORS (=^ AND !^) BACK TO (=~ AND !~).
+				$k =~ s/_/./g;
+				$query =~ s/\Q$j$i\E/$j2$k/;
+#print "<BR>j2=$j2= \n<BR>-aft: query=$query=\n";
+			}
+		}
+		else
+		{
+			last;
 		}
 	}
-	else
-	{
-		last;
-	}
-}
 	
-    #$query =~ s/([!=][~\^])\s*(m)?([^\w;\s])([^\3\\]*(?:\\.[^\3\\]*)*)\3(i)?/
-
+	#$query =~ s/([!=][~\^])\s*(m)?([^\w;\s])([^\3\\]*(?:\\.[^\3\\]*)*)\3(i)?/
+	
 	#THIS REGEX LOOKS FOR USER-DEFINED FUNCTIONS FOLLOWING "=~ OR !~ (LIKE), 
 	#FINDS THE MATCHING CLOSE PARIN(IF ANY), AND SURROUNDS THE FUNCTION AND 
 	#IT'S ARGS WITH AN "&", A DELIMITER LATER USED TO EVAL IT.
 	
 	1 while ($query =~ s|([!=][~\^])\s*([a-zA-Z_]+)(.*)$|
 			my ($one, $two, $three) = ($1, $2, $3);
-			my ($parincnt) = 0;
-			my (@lx) = split('', $three);
-			my ($i);
-			
-			for ($i=0;$i<=length($three);$i++)
-			{
-				++$parincnt  if ($lx[$i] eq '(');
-				last  unless ($parincnt);
+	my ($parincnt) = 0;
+	my (@lx) = split('', $three);
+	my ($i);
+	
+	for ($i=0;$i<=length($three);$i++)
+	{
+		++$parincnt  if ($lx[$i] eq '(');
+		last  unless ($parincnt);
 				--$parincnt  if ($lx[$i] eq ')');
-			}
-			"$one ".'&'."$two".substr($three,0,$i).'&'.
-					substr($three,$i);
+	}
+	"$one ".'&'."$two".substr($three,0,$i).'&'.
+			substr($three,$i);
 	|e);
-
+	
 	#THIS REGEX HANDLES ALL OTHER LIKE AND PERL "=~" AND "!~" OPERATORS.
-
-    $query =~ s%([!=][~\^])\s*(m)?(.)([^\3]*?)\3(i)?%
-	           my ($m, $i, $delim, $four, $one) = ($2, $5, $3, $4, $1);
-                   $m ||= ''; $i ||= '';
-					$m = 'm'  unless ($delim eq '/');
-					my ($three) = $delim;
-                    push (@strings, "$m$delim$four$three$i");
-                   "$one *$#strings";
-               %ge;
-    #$query =~ s|(['"])([^\1\\]*(?:\\.[^\1\\]*)*)\1|
-    $query =~ s|(["'])(.*?)\1|
-                   push (@strings, "$1$2$1"); "*$#strings";
- 	       |ge;
-
-$query =~ s/\x03/\'/g;   #RESTORE PROTECTED SINGLE QUOTES HERE.
-#$query =~ s/\x04/\"/g;   #RESTORE PROTECTED DOUBLE QUOTES HERE.   #REMOVED 20000303.
-$query =~ s/\x02/\\/g;   #RESTORE PROTECTED SLATS HERE.
-
-for $i (0..$#strings)
-{
-	$strings[$i] =~ s/\x03/\\\'/g; #RESTORE PROTECTED SINGLE QUOTES HERE.
-	#$strings[$i] =~ s/\x04/\"/g;   #RESTORE PROTECTED DOUBLE QUOTES HERE.   #REMOVED 20000303.
-	$strings[$i] =~ s/\x02/\\/g;   #RESTORE PROTECTED SLATS HERE.
-}
-
+	
+	$query =~ s%([!=][~\^])\s*(m)?(.)([^\3]*?)\3(i)?%
+	my ($m, $i, $delim, $four, $one) = ($2, $5, $3, $4, $1);
+	$m ||= ''; $i ||= '';
+	$m = 'm'  unless ($delim eq '/');
+	my ($three) = $delim;
+	push (@strings, "$m$delim$four$three$i");
+	"$one *$#strings";
+	%ge;
+	#$query =~ s|(['"])([^\1\\]*(?:\\.[^\1\\]*)*)\1|
+	$query =~ s|(["'])(.*?)\1|
+			push (@strings, "$1$2$1"); "*$#strings";
+	|ge;
+	
+	$query =~ s/\x03/\'/g;   #RESTORE PROTECTED SINGLE QUOTES HERE.
+	#$query =~ s/\x04/\"/g;   #RESTORE PROTECTED DOUBLE QUOTES HERE.   #REMOVED 20000303.
+	$query =~ s/\x02/\\/g;   #RESTORE PROTECTED SLATS HERE.
+	
+	for $i (0..$#strings)
+	{
+		$strings[$i] =~ s/\x03/\\\'/g; #RESTORE PROTECTED SINGLE QUOTES HERE.
+		#$strings[$i] =~ s/\x04/\"/g;   #RESTORE PROTECTED DOUBLE QUOTES HERE.   #REMOVED 20000303.
+		$strings[$i] =~ s/\x02/\\/g;   #RESTORE PROTECTED SLATS HERE.
+	}
+	
 	if ($query =~ /^($column)$/)
 	{
 		$i = $1;
 		$query = '&' . $i  unless ($i =~ $colmlist);
 	}
-
-    $query =~ s#\b($column)\s*($numops)\s*\*#$1 $numopmap{$2} \*#go;
-    $query =~ s#\b($column)\s*($numops)\s*\'#$1 $numopmap{$2} \'\'#go;
-    $query =~ s#\b($column)\s*($numops)\s*($colmlist)#$1 $numopmap{$2} $3#go;
-    #$query =~ s#\b($column)\s*($numops)\s*($column(?:\(.*?\))?)#$1 $numopmap{$2} $3#go;
-    $query =~ s%\b($column\s*(?:\(.*?\))?)\s+is\s+null%$1 eq ''%ig;
-    $query =~ s%\b($column\s*(?:\(.*?\))?)\s+is\s+not\s+null%$1 ne ''%ig;
-    #$query =~ s%\b($column)\s*(?:\(.*?\))?)\s*($numops)\s*CURVAL%$1 $2 &pscolfn($self,$3)%g;
-    $query =~ s%($column)\s*($numops)\s*($column\.(?:$psuedocols))%"$1 $2 ".&pscolfn($self,$3)%eg;
-    $query =~ s%\b($column\s*(?:\(.*?\))?)\s*($numops)\s*($column\s*(?:\(.*?\))?)%
-		my ($one,$two,$three) = ($1,$2,$3);
-		$one =~ s/\s+$//;
-		if ($one =~ /NUM\s*\(/ || ${$self->{types}}{"\U$one\E"} =~ /$NUMERICTYPES/i)
-		{
-			$two =~ s/^($strops)$/$stropmap{$two}/;
-			"$one $two $three";
-		}
-		else
-		{
-			"$one $numopmap{$two} $three";
-		}
-	 %eg;
-
-# (JWT 8/8/1998) $query =~ s|\b($column)\s+($strops)\s+(\d+)|$1 $stropmap{$2} $3|gio;
+	
+	$query =~ s#\b($column)\s*($numops)\s*\*#$1 $numopmap{$2} \*#go;
+	$query =~ s#\b($column)\s*($numops)\s*\'#$1 $numopmap{$2} \'\'#go;
+	$query =~ s#\b($column)\s*($numops)\s*($colmlist)#$1 $numopmap{$2} $3#go;
+	#$query =~ s#\b($column)\s*($numops)\s*($column(?:\(.*?\))?)#$1 $numopmap{$2} $3#go;
+	$query =~ s%\b($column\s*(?:\(.*?\))?)\s+is\s+null%$1 eq ''%ig;
+	$query =~ s%\b($column\s*(?:\(.*?\))?)\s+is\s+not\s+null%$1 ne ''%ig;
+	#$query =~ s%\b($column)\s*(?:\(.*?\))?)\s*($numops)\s*CURRVAL%$1 $2 &pscolfn($self,$3)%g;
+	$query =~ s%($column)\s*($numops)\s*($column\.(?:$psuedocols))%"$1 $2 ".&pscolfn($self,$3)%eg;
+	$query =~ s%\b($column\s*(?:\(.*?\))?)\s*($numops)\s*($column\s*(?:\(.*?\))?)%
+	my ($one,$two,$three) = ($1,$2,$3);
+	$one =~ s/\s+$//;
+	if ($one =~ /NUM\s*\(/ || ${$self->{types}}{"\U$one\E"} =~ /$NUMERICTYPES/i)
+	{
+		$two =~ s/^($strops)$/$stropmap{$two}/;
+		"$one $two $three";
+	}
+	else
+	{
+		"$one $numopmap{$two} $three";
+	}
+	%eg;
+	
+	# (JWT 8/8/1998) $query =~ s|\b($column)\s+($strops)\s+(\d+)|$1 $stropmap{$2} $3|gio;
 	$query =~ s|\b($column)\s*($strops)\s*(\d+)|$1 $stropmap{$2} $3|gio;
-
+	
 	$query =~ s%\b($column)\s*($strops)\s*(\*\d+)%
-		my ($one,$two,$three) = ($1,$2,$3);
-		$one =~ s/\s+$//;
-		if ($one =~ /NUM\s*\(/ || ${$self->{types}}{"\U$one\E"} =~ /$NUMERICTYPES/i)
-		{
-			$two =~ s/^($strops)$/$stropmap{$two}/;
-			"$one $two $three";
-		}
-		else
-		{
-			"$one $two $three";
-		}
-		%eg;
-
+	my ($one,$two,$three) = ($1,$2,$3);
+	$one =~ s/\s+$//;
+	if ($one =~ /NUM\s*\(/ || ${$self->{types}}{"\U$one\E"} =~ /$NUMERICTYPES/i)
+	{
+		$two =~ s/^($strops)$/$stropmap{$two}/;
+		"$one $two $three";
+	}
+	else
+	{
+		"$one $two $three";
+	}
+	%eg;
+	
 	#NOTE!:  NEVER USE ANY VALUE OF $special AS A COLUMN NAME IN YOUR TABLES!!
 	#20000224 ADDED "\b" AFTER "$special)" 5 LINES BELOW!
 	$query =~ s!\b(($colmlist))\b!
-                   my $match = $1;
-						$match =~ tr/a-z/A-Z/;
-                   ($match =~ /\b(?:$special)\b/io) ? "\L$match\E"    : 
-                                                    "\$_->{$match}"
-               !gei;
-    $query =~ s|[;`]||g;
-    $query =~ s#\|\|#or#g;
-    $query =~ s#&&#and#g;
-
-    $query =~ s|\*(\d+)|$strings[$1]|g;
-    
+	my $match = $1;
+	$match =~ tr/a-z/A-Z/;
+	($match =~ /\b(?:$special)\b/io) ? "\L$match\E"    : 
+	"\$_->{$match}"
+			!gei;
+#print "<BR>query =$query= strings=".join('|',@strings)."=\n";
+	$query =~ s/(and|or|not)/\L$1\E/ig;   #ADDED 20001011 TO FIX BUG THAT DIDN'T ALLOW UPPER-CASE BOOLOPS!
+	$query =~ s|[;`]||g;
+	$query =~ s#\|\|#or#g;
+	$query =~ s#&&#and#g;
+	
+	$query =~ s|\*(\d+)|$strings[$1]|g;
+	
 	#THIS REGEX EVALS USER-FUNCTION CALLS FOLLOWING "=~" OR "!~".
 	
 	$query =~ s@([!=][~\^])\s*m\&([a-zA-Z_]+[^&]*)\&@
 			my ($one, $two) = ($1, $2);
-			
-			$one =~ s/\^/\~/;
+			my ($isaLike) = 0;
+			$isaLike = 1  if ($one =~ s/\^/\~/);
 			my ($res) = eval($two);
-			$res =~ s/^\%//;
-			$res =~ s/\%$//;
+
+			#NEXT 3 REGICES CONVERT ORACLE WILDCARDS TO PERL WILDCARDS!
+			$res .= '$'  if (($res =~ s/^\%//) && $isaLike);
+			$res = '^' . $res  if (($res =~ s/\%$//) && $isaLike);
+			$res =~ s/\_/\./g  if ($isaLike);
 			my ($rtn);
-			foreach my $i ('/',"'",'"','|')
+			foreach my $i ('/',"'",'"','|','?','=')   #FIND AN UNUSED DELIMITER!
 			{
 				unless ($res =~ m%$i%)
 				{
@@ -1044,78 +1085,102 @@ for $i (0..$#strings)
 			}
 			$rtn;
 	@eg;
-
-    return $query;
+	return $query;
 }
 
 sub check_columns
 {
-    my ($self, $column_string) = @_;
-    my ($status, @columns, $column);
-
-    $status  = 1;
-$column =~ tr/a-z/A-Z/  if (defined $column);   #JWT
-$column_string =~ tr/a-z/A-Z/;   #JWT
-$self->{use_fields} = $column_string;    #JWT
-    @columns = split (/,/, $column_string);
-
-    foreach $column (@columns) {
-	#$status = 0 unless ($self->{fields}->{$column});  #20000114
+	my ($self, $column_string) = @_;
+	my ($status, @columns, $column);
+	
+	$status  = 1;
+	$column =~ tr/a-z/A-Z/  if (defined $column);   #JWT
+	$column_string =~ tr/a-z/A-Z/;   #JWT
+	$self->{use_fields} = $column_string;    #JWT
+	@columns = split (/,/, $column_string);
+	
+	foreach $column (@columns)
+	{
+		#$status = 0 unless ($self->{fields}->{$column});  #20000114
 		unless ($self->{fields}->{$column})
 		{
 			$errdetails = $column;
 			$status = 0;
 		}
 	}
-
-    return $status;
+	
+	return $status;
 }
 
 sub parse_columns
 {
-    my ($self, $command, $column_string, $condition, $values, 
+	my ($self, $command, $column_string, $condition, $values, 
 			$ordercols, $descorder, $fields) = @_;
-    my ($i, $j, $k, $rowcnt, $status, @columns, $single, $loop, $code, $column);
+	my ($i, $j, $k, $rowcnt, $status, @columns, $single, $loop, $code, $column);
 	my (%colorder, $rawvalue);
 	
 	local $results = undef;
-
+	
 	my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
-foreach $i (keys %$values)
-{
-	$values->{$i} =~ s/^\'(.*)\'$/my ($stuff) = $1; 
-			$stuff =~ s|\'|\\\'|g;
-	$stuff =~ s|\\\'\\\'|\\\'|g;
-			"'" . $stuff . "'"/e;
-	$values->{$i} =~ s/^\'$//;      #HANDLE NULL VALUES.
-	$values->{$i} =~ s/\n//g;       #REMOVE LFS ADDED BY NETSCAPE TEXTAREAS!
-	$values->{$i} =~ s/\r /\r/g;    #20000108: FIX LFS PREV. CONVERTED TO SPACES!
-	$values->{$i} = "''"  unless ($values->{$i} =~ /\S/);
-}
-    local $SIG{'__WARN__'} = sub { $status = -510 };
-    local $^W = 0;
+	foreach $i (keys %$values)
+	{
+		$values->{$i} =~ s/^\'(.*)\'$/my ($stuff) = $1; 
+		$stuff =~ s|\'|\\\'|g;
+		$stuff =~ s|\\\'\\\'|\\\'|g;
+		"'" . $stuff . "'"/e;
+		$values->{$i} =~ s/^\'$//;      #HANDLE NULL VALUES.
+		$values->{$i} =~ s/\n//g;       #REMOVE LFS ADDED BY NETSCAPE TEXTAREAS!
+		$values->{$i} =~ s/\r /\r/g;    #20000108: FIX LFS PREV. CONVERTED TO SPACES!
+		$values->{$i} = "''"  unless ($values->{$i} =~ /\S/);
+	}
+	local $SIG{'__WARN__'} = sub { $status = -510 };
+	local $^W = 0;
 	local ($_);
-$| = 1;
-    $status  = 1;
-    $results = [];
-    @columns = split (/,/, $column_string);
-    #$single  = ($#columns) ? $columns[$[] : $column_string;
-    $single  = ($#columns) ? $columns[$#columns] : $column_string;
+	$| = 1;
+	$status  = 1;
+	$results = [];
+	@columns = split (/,/, $column_string);
+	#$single  = ($#columns) ? $columns[$[] : $column_string;
+	$single  = ($#columns) ? $columns[$#columns] : $column_string;
 	$rowcnt = 0;
-
+	
 	my (@these_results);
-    for ($loop=0; $loop < scalar @{ $self->{records} }; $loop++)
+	for ($loop=0; $loop < scalar @{ $self->{records} }; $loop++)
 	{
 		next unless (defined $self->{records}->[$loop]);    #JWT: DON'T RETURN BLANK DELETED RECORDS.
 		$_ = $self->{records}->[$loop];
-		if ( !$condition || (eval $condition) ) {
-		    if ($command eq 'select')
-		    {
+#print "<BR>PC: cond=$condition= c2=".$_->{C2}."= eval=".eval($condition)."= err=$@=\n"; 
+		if ( !$condition || (eval $condition) )
+		{
+			if ($command eq 'select')
+			{
 				if ($fields)
 				{
 					@these_results = ();
+					my ($t);
 					for (my $i=0;$i<=$#{$fields};$i++)
 					{
+						#NEXT IF-STMT ADDED 20001019 TO ENABLE "SELECT seq.CURRVAL FROM DUAL"!
+						if ($fields->[$i] =~ /\s*(\w+).(CURRVAL|NEXTVAL)\s*$/)
+						{
+							my ($seq_file) = $self->get_path_info($1) . '.seq';
+							$seq_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
+							open (FILE, "<$seq_file") || return (-511);
+							$x = <FILE>;
+							#chomp($x);
+							$x =~ s/\s+$//;   #20000113  CHOMP WON'T WORK HERE IF RECORD DELIMITER SET TO OTHER THAN \n!
+							($incval, $startval) = split(/,/,$x);
+							close (FILE);
+							$t = $fields->[$i];
+							if ($t =~ /\s*(\w+).NEXTVAL\s*$/)
+							{
+								open (FILE, ">$seq_file") || return (-511);
+								$incval += ($startval || 1);
+								print FILE "$incval,$startval\n";
+								close (FILE);
+							}
+							$fields->[$i] = $incval;
+						}
 						push (@these_results, eval $fields->[$i]);
 					}
 					push (@$results, [ @these_results ]);
@@ -1124,119 +1189,129 @@ $| = 1;
 				{
 					push (@$results, [ @$_{@columns} ]);
 				}
-		    } 
-		    elsif ($command eq 'update') {
-	
-			$code = '';
-			my ($matchcnt) = 0;
-			my (@valuelist) = keys(%$values);
-			my ($dontchkcols) = '('.join('|',@valuelist).')';
-			foreach $i (@valuelist)
+			} 
+			elsif ($command eq 'update')
 			{
-				for ($j=0;$j<=$#keyfields;$j++)
+				
+
+				$code = '';
+				my ($matchcnt) = 0;
+				my (@valuelist) = keys(%$values);
+				my ($dontchkcols) = '('.join('|',@valuelist).')';
+#print "<BR>PC: value list =".join('|',@valuelist)."= \n<BR>values=".join('|',values(%$values))."=\n";
+				foreach $i (@valuelist)
 				{
-					if ($i eq $keyfields[$j])
+					for ($j=0;$j<=$#keyfields;$j++)
 					{
-K: 
-						for ($k=0;$k < scalar @{ $self->{records} }; $k++)
+						if ($i eq $keyfields[$j])
 						{
-							$rawvalue = $values->{$i};
-							$rawvalue =~ s/^\'(.*)\'\s*$/$1/;
-							if ($self->{records}->[$k]->{$i} eq $rawvalue)
+							K: 
+							for ($k=0;$k < scalar @{ $self->{records} }; $k++)
 							{
-								foreach $jj (@keyfields)
+								$rawvalue = $values->{$i};
+								$rawvalue =~ s/^\'(.*)\'\s*$/$1/;
+								if ($self->{records}->[$k]->{$i} eq $rawvalue)
 								{
-									unless ($jj =~ /$dontchkcols/)
+									foreach $jj (@keyfields)
 									{
-										next K  
+										unless ($jj =~ /$dontchkcols/)
+										{
+											next K  
 											unless ($self->{records}->[$k]->{$jj} 
 											eq $_->{$jj});
+										}
 									}
+									goto MATCHED1;
 								}
-								goto MATCHED1;
 							}
+							goto NOMATCHED1;
+							MATCHED1: ;
+							++$matchcnt;
 						}
-						goto NOMATCHED1;
-MATCHED1: ;
-						++$matchcnt;
 					}
 				}
-			}
-			return (-518)  if ($matchcnt && $matchcnt > $#valuelist);   #ALL KEY FIELDS WERE DUPLICATES!
-NOMATCHED1:
-			$self->{dirty} = 1;
-			foreach $jj (@columns)  #JWT 19991104: FORCE TRUNCATION TO FIT!
-			{
-				$rawvalue = $values->{$jj};
-				if ($rawvalue =~ /^[_a-zA-Z]/)  #NEXT 5 LINES ADDED 20000516 SO FUNCTIONS WILL WORK IN UPDATES!
+				return (-518)  if ($matchcnt && $matchcnt > $#valuelist);   #ALL KEY FIELDS WERE DUPLICATES!
+				NOMATCHED1:
+				$self->{dirty} = 1;
+				foreach $jj (@columns)  #JWT 19991104: FORCE TRUNCATION TO FIT!
 				{
-					$rawvalue = eval $rawvalue;   #FUNCTION EVAL 3
-					return (-517)  if ($@);
-				}
-				else
-				{
-					$rawvalue =~ s/^\'(.*)\'\s*$/$1/  if ($values->{$jj} =~ /^\'/);
-				}
+					$rawvalue = $values->{$jj};
+					if ($rawvalue =~ /^[_a-zA-Z]/)  #NEXT 5 LINES ADDED 20000516 SO FUNCTIONS WILL WORK IN UPDATES!
+					{
+#print "<BR>-???3 EVAL: rawvalue=$rawvalue=\n";
+						$rawvalue = eval $rawvalue;   #FUNCTION EVAL 3
+						return (-517)  if ($@);
+					}
+					else
+					{
+						$rawvalue =~ s/^\'(.*)\'\s*$/$1/  if ($values->{$jj} =~ /^\'/);
+					}
 					
-				if (${$self->{types}}{$jj} =~ /$NUMERICTYPES/)
-				{
-					$k = sprintf(('%.'.${$self->{scales}}{$jj}.'f'), 
-							$rawvalue);
+					if (${$self->{types}}{$jj} =~ /$NUMERICTYPES/)
+					{
+						$k = sprintf(('%.'.${$self->{scales}}{$jj}.'f'), 
+								$rawvalue);
+					}
+					else
+					{
+						$k = $rawvalue;
+					}
+					$rawvalue = substr($k,0,${$self->{lengths}}{$jj});
+					unless ($self->{LongTruncOk} || $rawvalue eq $k || 
+							(${$self->{types}}{$jj} eq 'FLOAT'))
+					{
+						$errdetails = "$jj to ${$self->{lengths}}{$jj} chars";
+						return (-519);   #20000921: ADDED (MANY PLACES) LENGTH TO ERRDETAILS "(fieldname to ## chars)"
+					}
+					if ((${$self->{types}}{$jj} eq 'FLOAT') 
+					&& (int($rawvalue) != int($k)))
+					{
+						$errdetails = "$jj to ${$self->{lengths}}{$jj} chars";
+						return (-519);
+					}
+					if (${$self->{types}}{$jj} eq 'CHAR')
+					{
+						$values->{$jj} = "'" . sprintf(
+						'%-'.${$self->{lengths}}{$jj}.'s',
+								$rawvalue) . "'";
+					}
+					elsif (${$self->{types}}{$jj} !~ /$NUMERICTYPES/)
+					{
+						$values->{$jj} = "'" . $rawvalue . "'";
+					}
+					else
+					{
+						$values->{$jj} = $rawvalue;
+					}
 				}
-				else
-				{
-					$k = $rawvalue;
-				}
-				$rawvalue = substr($k,0,${$self->{lengths}}{$jj});
-				unless ($self->{LongTruncOk} || $rawvalue eq $k || 
-						(${$self->{types}}{$jj} eq 'FLOAT'))
-				{
-					$errdetails = "$jj to ${$self->{lengths}}{$jj} chars";
-					return (-519);   #20000921: ADDED (MANY PLACES) LENGTH TO ERRDETAILS "(fieldname to ## chars)"
-				}
-				if ((${$self->{types}}{$jj} eq 'FLOAT') 
-						&& (int($rawvalue) != int($k)))
-				{
-					$errdetails = "$jj to ${$self->{lengths}}{$jj} chars";
-					return (-519);
-				}
-				if (${$self->{types}}{$jj} eq 'CHAR')
-				{
-					$values->{$jj} = "'" . sprintf(
-							'%-'.${$self->{lengths}}{$jj}.'s',
-							$rawvalue) . "'";
-				}
-				elsif (${$self->{types}}{$jj} !~ /$NUMERICTYPES/)
-				{
-					$values->{$jj} = "'" . $rawvalue . "'";
-				}
-				else
-				{
-					$values->{$jj} = $rawvalue;
-				}
+				map { $code .= qq|\$_->{'$_'} = $values->{$_};| } @columns;
+				eval $code;
+				return (-517)  if ($@);
 			}
-			map { $code .= qq|\$_->{'$_'} = $values->{$_};| } @columns;
-	                eval $code;
-					return (-517)  if ($@);
-		    } elsif ($command eq 'add') {
-			$_->{$single} = '';   #ORACLE DOES NOT SET EXISTING RECORDS TO DEFAULT VALUE!
-	
-		    } elsif ($command eq 'drop') {
-			delete $_->{$single};
-		    }
+			elsif ($command eq 'add')
+			{
+				$_->{$single} = '';   #ORACLE DOES NOT SET EXISTING RECORDS TO DEFAULT VALUE!
+				
+			}
+			elsif ($command eq 'drop')
+			{
+				delete $_->{$single};
+			}
 			++$rowcnt;
 		}
-    }
-
-    if ($status <= 0)
+	}
+	
+	if ($status <= 0)
 	{
 		return $status;
 	}
 	elsif ( $command ne 'select' )
 	{
 		return $rowcnt;
-    } else {
-
+	}
+	else
+	{
+		
 		if (@$ordercols)
 		{
 			$rowcnt = 0;
@@ -1252,8 +1327,8 @@ NOMATCHED1:
 			}
 			for (0..$#$results)
 			{
-	    			next unless (defined $self->{records}->[$_]);
-
+				next unless (defined $self->{records}->[$_]);
+				
 				#$SA[$i] = ' ' x (40x($#$ordercols+1));
 				#$i = 0;
 				foreach $j (@$ordercols)
@@ -1276,7 +1351,7 @@ NOMATCHED1:
 					{
 						$SA[$i] .= ${$results}[$_]->[$k] . $mysep;
 					}
-####select * from medm_users where fn like 'j%' order by (ln,fn) desc
+					####select * from medm_users where fn like 'j%' order by (ln,fn) desc
 					++$k;
 				}
 				$SA[$i] .= '|' . $_;
@@ -1300,18 +1375,18 @@ NOMATCHED1:
 			}
 			##???@$results = ($i,@$results);
 		}
-	unshift (@$results, $rowcnt);
-return $results;
-    }
+		unshift (@$results, $rowcnt);
+		return $results;
+	}
 }
 
 sub check_for_reload
 {
-    my ($self, $file) = @_;
-    my ($table, $path, $status);
-
-    return unless ($file);
-
+	my ($self, $file) = @_;
+	my ($table, $path, $status);
+	
+	return unless ($file);
+	
 	if ($file =~ /^DUAL$/i)  #ADDED 20000306 TO HANDLE ORACLE'S "DUAL" TABLE!
 	{
 		undef %{ $self->{types} };
@@ -1327,50 +1402,54 @@ sub check_for_reload
 		$self->{records}->[0] = {'DUMMY' => 'X'};
 		return (1);
 	}
-
-    ($path, $table) = $self->get_path_info ($file);
+	
+	($path, $table) = $self->get_path_info ($file);
 	#$table =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});
-    $file   = $path . $table;  #  if ($table eq $file);
+	$file   = $path . $table;  #  if ($table eq $file);
 	$file .= $self->{ext}  if ($self->{ext});  #JWT:ADD FILE EXTENSIONS.
 	#$file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});
-    $status = 1;
-
+	$status = 1;
+	
 	my (@stats) = stat ($file);
-    if ( ($self->{table} ne $table) || ($self->{file} ne $file
-    		|| $self->{timestamp} != $stats[9]) ) {
-	#stat ($file);
-	if ( (-e _) && (-T _) && (-s _) && (-r _) ) {
-
-	    $self->{table} = $table;
-		#$file .= $self->{ext}  if ($self->{ext});  #JWT:ADD FILE EXTENSIONS.
-	    $self->{file}  = $file;
-	    $status        = $self->load_database ($file);
-		$self->{timestamp} = $stats[9];
-	} else {
-		$errdetails = $file;   #20000114
-	    $status = 0;
+	if ( ($self->{table} ne $table) || ($self->{file} ne $file
+	|| $self->{timestamp} != $stats[9]) )
+	{
+		#stat ($file);
+		if ( (-e _) && (-T _) && (-s _) && (-r _) )
+		{
+			
+			$self->{table} = $table;
+			#$file .= $self->{ext}  if ($self->{ext});  #JWT:ADD FILE EXTENSIONS.
+			$self->{file}  = $file;
+			$status        = $self->load_database ($file);
+			$self->{timestamp} = $stats[9];
+		}
+		else
+		{
+			$errdetails = $file;   #20000114
+			$status = 0;
+		}
 	}
-    }
-
+	
 	$errdetails = $file  if ($status == 0);   #20000114
-    return $status;
+	return $status;
 }
 
 sub rollback
 {
-    my ($self) = @_;
-    my ($table, $path, $status);
-
+	my ($self) = @_;
+	my ($table, $path, $status);
+	
 	my (@stats) = stat ($self->{file});
 	
 	if ( (-e _) && (-T _) && (-s _) && (-r _) )
 	{
-	    $status = $self->load_database ($self->{file});
+		$status = $self->load_database ($self->{file});
 		$self->{timestamp} = $stats[9];
 	}
 	else 
 	{
-	    $status = 0;
+		$status = 0;
 	}
 	$self->{dirty} = 0;
 	return $status;
@@ -1378,29 +1457,29 @@ sub rollback
 
 sub select
 {
-    my ($self, $query) = @_;
-    my ($i, @l, $regex, $path, $columns, $table, $extra, $condition, 
+	my ($self, $query) = @_;
+	my ($i, @l, $regex, $path, $columns, $table, $extra, $condition, 
 			$values_or_error);
 	my (@ordercols) = ();
-    $regex = $self->{_select};
-    $path  = $self->{path};
-
+	$regex = $self->{_select};
+	$path  = $self->{path};
+	
 	$query =~ s/^select\s+distinct(\s+\w|\s*\(|\s+\*)/select $1/i;
-
+	
 	#HANDLE SELECTS WITH JUST FIELD NAMES (NO FUNCTIONS) FAST.
-
+	
 	if ($query =~ /^select\s+                         # Keyword
-                    ($regex)\s+                       # Columns
-                    from\s+                           # 'from'
-                    ($path)(.*)$/iox)
+			($regex)\s+                       # Columns
+			from\s+                           # 'from'
+			($path)(.*)$/iox)
 	{           
 		($columns, $table, $extra) = ($1, $2, $3);
-	
+		
 		if ($columns =~ /^table_name$/i && $table =~ /^user_tables$/i)  #JWT: FETCH TABLE NAMES!
 		{
 			$full_path = $self->{directory};
 			$full_path .= $self->{separator}->{ $self->{platform} }  
-					unless ($full_path !~ /\S/ 
+			unless ($full_path !~ /\S/ 
 					|| $full_path =~ m#$self->{separator}->{ $self->{platform} }$#);
 			my ($cmd);
 			#$cmd = "/bin/ls $full_path*"; #NEXT 8 REPLACED W/NEXT 18 20000414 FOR OS-INDEPENDENCE.
@@ -1414,6 +1493,7 @@ sub select
 			$cmd = $full_path . '*' . $self->{ext};
 			#my $code = "while (my \$i = <$cmd>)\n";
 			my ($code);
+
 			if ($^O =~ /Win/i)  #NEEDED TO MAKE PERL2EXE'S "-GUI" VERSION WORK!
 			{
 				@l = glob $cmd;
@@ -1423,16 +1503,17 @@ sub select
 				@l = ();
 				$code = "while (my \$i = <$cmd>)\n";
 				$code .= <<'END_CODE';
-				{
-					chomp ($i);
-					push (@l, $i);
-				}
+					{
+						chomp ($i);
+						push (@l, $i);
+					}
 END_CODE
 				eval $code;
 			}
 			$self->{use_fields} = 'TABLE_NAME';  #ADDED 20000224 FOR DBI!
 			$values_or_error = [];
-			for ($i=0;$i<=$#l;$i++)	{
+			for ($i=0;$i<=$#l;$i++)
+			{
 				#chomp($l[$i]);   #NO LONGER NEEDED 20000228
 				$l[$i] =~ s/${full_path}(.*?)$self->{ext}/$1/;
 				$l[$i] =~ s/$self->{ext}$//;  #ADDED 20000418 - FORCE THIS!
@@ -1457,32 +1538,30 @@ END_CODE
 		}
 		if ($extra =~ /^\s+where\s*(.+)$/i)
 		{
-		
-		    $condition = $self->parse_expression ($1);
+			
+			$condition = $self->parse_expression ($1);
 		}
-#print "-select table=$thefid= where=$condition=\n";
-#print "-select columns=$columns= order=".join('|',@ordercols)."= desc=$descorder=\n";
 		#$self->check_for_reload ($table) || return (-501);
 		$columns = join (',', @{ $self->{order} }) if ($columns =~ /\*/);
 		$columns =~ s/\s//g;
 		$columns =~ tr/a-z/A-Z/;
 		$self->check_columns ($columns) || return (-502);
-	
+		
 		$values_or_error = $self->parse_columns ('select', $columns, 
 				$condition, '', \@ordercols, $descorder);    #JWT
 		return $values_or_error;
-    }
-    elsif  ($query =~ /^select\s+   #HANDLE 1 OR MORE FUNCTIONS IN SELECT. (20000306)
+	}
+	elsif  ($query =~ /^select\s+   #HANDLE 1 OR MORE FUNCTIONS IN SELECT. (20000306)
 			(.+)\s+
 			from\s+
 			(\w+)(.*)$/iox)
-    {
+	{
 		my ($column_stuff, $table, $extra) = ($1, $2, $3);
-    		my (@fields) = ();
-    		my ($fnname, $found_parin, $parincnt);
-
+		my (@fields) = ();
+		my ($fnname, $found_parin, $parincnt);
+		
 		#SPLIT UP THE FIELDS BEING REQUESTED.
-
+		
 		$column_stuff =~ s/\s+$//;
 		while (1)
 		{
@@ -1499,9 +1578,9 @@ END_CODE
 				$column_stuff =~ s/^\,//;
 				next;
 			}
-
+			
 			#FOR FUNCTIONS W/ARGS, WE MUST FIND THE CLOSING ")"!
-
+			
 			for ($i=0;$i<=length($column_stuff);$i++)
 			{
 				if ($column_stuff[$i] eq '(')
@@ -1510,7 +1589,7 @@ END_CODE
 					$found_parin = 1;
 				}
 				last  if (!$parincnt && $found_parin);
-				--$parincnt  if ($column_stuff[$i] eq ')');
+						--$parincnt  if ($column_stuff[$i] eq ')');
 			}
 			push (@fields, ($fnname . substr($column_stuff,0,$i)));
 			$t = substr($column_stuff,$i);
@@ -1523,34 +1602,34 @@ END_CODE
 		my ($column_list) = '('.join ('|', @{ $self->{order} }).')';
 		$columns = '';
 		my (@strings);
-
+		
 		#DETERMINE WHICH WORDS ARE VALID COLUMN NAMES AND CONVERT THEM INTO 
 		#THE VARIABLE FOR LATER EVAL IN PARSE_EXPRESSION!  OTHER WORDS ARE 
 		#TREATED AS FUNCTION NAMES AND ARE EVALLED AS THEY ARE.
-
+		
 		for (my $i=0;$i<=$#fields;$i++)
 		{
 			@strings = ();
-
+			
 			#FIRST, WE MUST PROTECT COLUMN NAMES APPEARING IN LITERAL STRINGS!
-
+			
 			$fields[$i] =~ s|(\'[^\']+\')|
 					push (@strings, $1);
-					"\x02$#strings\x02"
-			|eg;
-
+			"\x02$#strings\x02"
+					|eg;
+			
 			#NOW CONVERT THE REMAINING COLUMN NAMES TO "$$_{COLUMN_NAME}"!
-
+			
 			$fields[$i] =~ s/($column_list)/
 					my ($column_name) = $1;
-					$columns .= $column_name . ',';
-					"\$\$\_\{\U$column_name\E\}"/ieg;
+			$columns .= $column_name . ',';
+			"\$\$\_\{\U$column_name\E\}"/ieg;
 			$fields[$i] =~ s/\x02(\d+)\x02/$strings[$1]/g; #UNPROTECT LITERALS!
 		}
 		chop ($columns);
-
+		
 		#PROCESS ANY WHERE AND ORDER-BY CLAUSES.
-
+		
 		if ($extra =~ s/([\s|\)]+)order\s+by\s*(.*)/$1/i)
 		{
 			$orderclause = $2;
@@ -1565,7 +1644,7 @@ END_CODE
 		}
 		if ($extra =~ /^\s+where\s*(.+)$/i)
 		{
-		    $condition = $self->parse_expression ($1);
+			$condition = $self->parse_expression ($1);
 		}
 		$columns =~ tr/a-z/A-Z/;
 		$self->check_columns ($columns) || return (-502);
@@ -1573,96 +1652,98 @@ END_CODE
 		$values_or_error = $self->parse_columns ('select', $columns, 
 				$condition, '', \@ordercols, $descorder, \@fields);    #JWT
 		return $values_or_error;
-    } 
-    else     #INVALID SELECT STATEMENT!
-    {
+	} 
+	else     #INVALID SELECT STATEMENT!
+	{
 		return (-503);
-    }
+	}
 }
 
 sub update
 {
-    my ($self, $query) = @_;
-    my ($i, $path, $regex, $table, $extra, $condition, $all_columns, 
-	$columns, $status);
-	my ($psuedocols) = "CURVAL|NEXTVAL";
-
-    ##++
-    ##  Hack to allow parenthesis to be escaped!
-    ##--
-
-    $query =~ s/\\([()])/sprintf ("%%\0%d: ", ord ($1))/ge;
-    $path  =  $self->{path};
-    $regex =  $self->{column};
-
-    if ($query =~ /^update\s+($path)\s+set\s+(.+)$/io) {
-	($table, $extra) = ($1, $2);
-
-	$thefid = $table;
-	$self->check_for_reload ($table) || return (-501);
-	return (-511)  unless (-w $self->{file});   #ADDED 19991207!
-
-	$all_columns = {};
-	$columns     = '';
-
-	$extra =~ s/\\\\/\x02/g;         #PROTECT "\\"
-	#$extra =~ s/\\\'|\'\'/\x03/g;    #PROTECT '', AND \'. #CHANGED 20000303 TO NEXT 2.
-	$extra =~ s/\'\'/\x03\x03/g;    #PROTECT '', AND \'.
-	$extra =~ s/\\\'/\x03/g;    #PROTECT '', AND \'.
-	#$extra =~ s/\\\"|\"\"/\x04/g;   #REMOVED 20000303.
-
-	#$extra =~ s/^[\s\(]+(.*)$/$1/;  #STRIP OFF SURROUNDING SPACES AND PARINS.
-	#$extra =~ s/[\s\)]+$/$1/;
-	#$extra =~ s/^[\s\(]+//;  #STRIP OFF SURROUNDING SPACES AND PARINS.
-	#$extra =~ s/[\s\)]+$//;
-	$extra =~ s/^\s+//;  #STRIP OFF SURROUNDING SPACES.
-	$extra =~ s/\s+$//;
-
-	#NOW TEMPORARILY PROTECT COMMAS WITHIN (), IE. FN(ARG1,ARG2).
-
-	$column = $self->{column};
-	$extra =~ s/($column\s*\=\s*)\'(.*?)\'(,|$)/
-		my ($one,$two,$three) = ($1,$2,$3);
+	my ($self, $query) = @_;
+	my ($i, $path, $regex, $table, $extra, $condition, $all_columns, 
+			$columns, $status);
+	my ($psuedocols) = "CURRVAL|NEXTVAL";
+	
+	##++
+	##  Hack to allow parenthesis to be escaped!
+	##--
+	
+	$query =~ s/\\([()])/sprintf ("%%\0%d: ", ord ($1))/ge;
+	$path  =  $self->{path};
+	$regex =  $self->{column};
+	
+	if ($query =~ /^update\s+($path)\s+set\s+(.+)$/io)
+	{
+		($table, $extra) = ($1, $2);
+		
+		$thefid = $table;
+		$self->check_for_reload ($table) || return (-501);
+		return (-511)  unless (-w $self->{file});   #ADDED 19991207!
+		
+		$all_columns = {};
+		$columns     = '';
+		
+		$extra =~ s/\\\\/\x02/g;         #PROTECT "\\"
+		#$extra =~ s/\\\'|\'\'/\x03/g;    #PROTECT '', AND \'. #CHANGED 20000303 TO NEXT 2.
+		$extra =~ s/\'\'/\x03\x03/g;    #PROTECT '', AND \'.
+				$extra =~ s/\\\'/\x03/g;    #PROTECT '', AND \'.
+				#$extra =~ s/\\\"|\"\"/\x04/g;   #REMOVED 20000303.
+		
+		#$extra =~ s/^[\s\(]+(.*)$/$1/;  #STRIP OFF SURROUNDING SPACES AND PARINS.
+		#$extra =~ s/[\s\)]+$/$1/;
+		#$extra =~ s/^[\s\(]+//;  #STRIP OFF SURROUNDING SPACES AND PARINS.
+		#$extra =~ s/[\s\)]+$//;
+		$extra =~ s/^\s+//;  #STRIP OFF SURROUNDING SPACES.
+		$extra =~ s/\s+$//;
+		
+		#NOW TEMPORARILY PROTECT COMMAS WITHIN (), IE. FN(ARG1,ARG2).
+		
+		$column = $self->{column};
+		$extra =~ s/($column\s*\=\s*)\'(.*?)\'(,|$)/
+				my ($one,$two,$three) = ($1,$2,$3);
 		$two =~ s|\,|\x05|g;
 		$two =~ s|\(|\x06|g;
 		$two =~ s|\)|\x07|g;
 		$one."'".$two."'".$three;
-	/eg;
-
-	1 while ($extra =~ s/\(([^\(\)]*)\)/
-			my ($args) = $1;
-			$args =~ s|\,|\x05|g;
-			"\x06$args\x07";
-			/eg);
-	###$extra =~ s/\'(.*?)\'/my ($j)=$1;  #PROTECT COMMAS IN QUOTES.
-	###		$j=~s|,|\x05|g; 
-	###	"'$j'"/eg;
-	@expns = split(',',$extra);
-	for ($i=0;$i<=$#expns;$i++)  #PROTECT "WHERE" IN QUOTED VALUES.
-	{
-		$expns[$i] =~ s/\x05/,/g;
-		$expns[$i] =~ s/\x06/\(/g;
-		$expns[$i] =~ s/\x07/\)/g;
-		$expns[$i] =~ s/\=\s*'([^']*?)where([^']*?)'/\='$1\x05$2'/gi;
-	$expns[$i] =~ s/\'(.*?)\'/my ($j)=$1; 
+		/eg;
+		
+		1 while ($extra =~ s/\(([^\(\)]*)\)/
+				my ($args) = $1;
+		$args =~ s|\,|\x05|g;
+		"\x06$args\x07";
+		/eg);
+		###$extra =~ s/\'(.*?)\'/my ($j)=$1;  #PROTECT COMMAS IN QUOTES.
+		###		$j=~s|,|\x05|g; 
+		###	"'$j'"/eg;
+		@expns = split(',',$extra);
+		for ($i=0;$i<=$#expns;$i++)  #PROTECT "WHERE" IN QUOTED VALUES.
+		{
+			$expns[$i] =~ s/\x05/,/g;
+			$expns[$i] =~ s/\x06/\(/g;
+			$expns[$i] =~ s/\x07/\)/g;
+			$expns[$i] =~ s/\=\s*'([^']*?)where([^']*?)'/\='$1\x05$2'/gi;
+			$expns[$i] =~ s/\'(.*?)\'/my ($j)=$1; 
 			$j=~s|where|\x05|g; 
-		"'$j'"/eg;
-	}
-	$extra = $expns[$#expns];    #EXTRACT WHERE-CLAUSE, IF ANY.
-	$condition = ($extra =~ s/(.*)where(.+)$/where$1/i) ? $2 : '';
-	$condition =~ s/\s+//;
-	$condition =~ s/^\((.*)\)$/$1/g;
-	#$expns[$#expns] =~ s/where(.+)$//i;
-	$expns[$#expns] =~ s/\s*where(.+)$//i;   #20000108 REP. PREV. LINE 2FIX BUG IF LAST COLUMN CONTAINS SINGLE QUOTES.
-	$column = $self->{column};
-	$condition = $self->parse_expression ($condition);
-	for ($i=0;$i<=$#expns;$i++)  #EXTRACT FIELD NAMES AND 
-	                             #VALUES FROM EACH EXPRESSION.
-	{
-		$expns[$i] =~ s!\s*($column)\s*=\s*(.+)$!
+			"'$j'"/eg;
+		}
+		$extra = $expns[$#expns];    #EXTRACT WHERE-CLAUSE, IF ANY.
+		$condition = ($extra =~ s/(.*)where(.+)$/where$1/i) ? $2 : '';
+		$condition =~ s/\s+//;
+		$condition =~ s/^\((.*)\)$/$1/g;
+		#$expns[$#expns] =~ s/where(.+)$//i;
+		$expns[$#expns] =~ s/\s*where(.+)$//i;   #20000108 REP. PREV. LINE 2FIX BUG IF LAST COLUMN CONTAINS SINGLE QUOTES.
+		$column = $self->{column};
+#print "<BR>UPDATE: cond before parse_exp: =$condition=\n";
+		$condition = $self->parse_expression ($condition);
+#print "<BR>UPDATE: cond  after parse_exp: =$condition=\n";
+		for ($i=0;$i<=$#expns;$i++)  #EXTRACT FIELD NAMES AND 
+		#VALUES FROM EACH EXPRESSION.
+		{
+			$expns[$i] =~ s!\s*($column)\s*=\s*(.+)$!
 			my ($var) = $1;
 			my ($val) = $2;
-
 			$val = &pscolfn($self,$val)  if ($val =~ "$column\.$psuedocols");
 			$var =~ tr/a-z/A-Z/;
 			$val =~ s|%\0(\d+): |pack("C",$1)|ge;
@@ -1670,68 +1751,73 @@ sub update
 			$all_columns->{$var} =~ s/\x02/\\\\/g;
 			#$all_columns->{$var} =~ s/\x03/\'\'/g;
 			$all_columns->{$var} =~ s/\x03/\'/g;   #20000108 REPL. PREV. LINE - NO NEED TO DOUBLE QUOTES (WE ESCAPE THEM) - THIS AIN'T ORACLE.
-			#$all_columns->{$var} =~ s/\x04/\"\"/g;   #REMOVED 20000303.
-		!e;
+					#$all_columns->{$var} =~ s/\x04/\"\"/g;   #REMOVED 20000303.
+			!e;
+		}
+		
+		$columns   = join (',', keys %$all_columns);
+		$columns =~ tr/a-z/A-Z/;   #JWT
+		#$condition = ($extra =~ /^\s*where\s+(.+)$/i) ? $1 : '';
+		
+		#$self->check_for_reload ($table) || return (-501);
+		$self->check_columns ($columns)  || return (-502);
+		#### MOVED UP ABOVE FOR-LOOP SO "NEXTVAL" GETS EVALUATED IN RIGHT ORDER!
+		####$condition = $self->parse_expression ($condition);
+		$status    = $self->parse_columns ('update', $columns, 
+				$condition, 
+				$all_columns);
+		return ($status);
 	}
-
-	$columns   = join (',', keys %$all_columns);
-	$columns =~ tr/a-z/A-Z/;   #JWT
-	#$condition = ($extra =~ /^\s*where\s+(.+)$/i) ? $1 : '';
-
-	#$self->check_for_reload ($table) || return (-501);
-	$self->check_columns ($columns)  || return (-502);
-	#### MOVED UP ABOVE FOR-LOOP SO "NEXTVAL" GETS EVALUATED IN RIGHT ORDER!
-	####$condition = $self->parse_expression ($condition);
-	$status    = $self->parse_columns ('update', $columns, 
- 			    		             $condition, 
-					             $all_columns);
-	return ($status);
-    } else {
+	else
+	{
 		return (-504);
-    }
+	}
 }
 
 sub delete 
 {
-    my ($self, $query) = @_;
-    my ($path, $table, $condition, $status, $wherepart);
-
-    $path = $self->{path};
-
-    if ($query =~ /^delete\s+from\s+($path)(?:\s+where\s+(.+))?$/io) {
-	$table     = $1;
-	$wherepart = $2;
-	$thefid = $table;
-	$self->check_for_reload ($table) || return (-501);
-	return (-511)  unless (-w $self->{file});   #ADDED 19991207!
-	if ($wherepart =~ /\S/)
+	my ($self, $query) = @_;
+	my ($path, $table, $condition, $status, $wherepart);
+	
+	$path = $self->{path};
+	
+	if ($query =~ /^delete\s+from\s+($path)(?:\s+where\s+(.+))?$/io)
 	{
-		$condition = $self->parse_expression ($wherepart);
+		$table     = $1;
+		$wherepart = $2;
+		$thefid = $table;
+		$self->check_for_reload ($table) || return (-501);
+		return (-511)  unless (-w $self->{file});   #ADDED 19991207!
+		if ($wherepart =~ /\S/)
+		{
+			$condition = $self->parse_expression ($wherepart);
+		}
+		else
+		{
+			$condition = 1;
+		}
+		#$self->check_for_reload ($table) || return (-501);
+		
+		$status = $self->delete_rows ($condition);
+		
+		return $status;
 	}
 	else
 	{
-		$condition = 1;
+		return (-505);
 	}
-	#$self->check_for_reload ($table) || return (-501);
-
-	$status = $self->delete_rows ($condition);
-
-	return $status;
-    } else {
-	return (-505);
-    }
 }
 
 sub drop
 {
-    my ($self, $query) = @_;
-    my ($path, $table, $condition, $status, $wherepart);
-
-    $path = $self->{path};
-
+	my ($self, $query) = @_;
+	my ($path, $table, $condition, $status, $wherepart);
+	
+	$path = $self->{path};
+	
 	$_ = undef;
-    if ($query =~ /^drop\s+table\s+($path)\s*$/io)
-    {
+	if ($query =~ /^drop\s+table\s+($path)\s*$/io)
+	{
 		$table     = $1;
 		$self->check_for_reload ($table) || return (-501);
 		return (unlink $self->{file} || -501);
@@ -1742,24 +1828,24 @@ sub drop
 
 sub delete_rows
 {
-    my ($self, $condition) = @_;
-    my ($status, $loop);
-    local $SIG{'__WARN__'} = sub { $status = -510 };
-    local $^W = 0;
-
-    #$status = 1;
-    $status = 0;
-
-    #for ($loop=0; $loop < scalar @{ $self->{records} }; $loop++) {
+	my ($self, $condition) = @_;
+	my ($status, $loop);
+	local $SIG{'__WARN__'} = sub { $status = -510 };
+	local $^W = 0;
+	
+	#$status = 1;
+	$status = 0;
+	
+	#for ($loop=0; $loop < scalar @{ $self->{records} }; $loop++) {
 	$loop = 0;
 	while (1)
 	{
 		#last  if ($loop > scalar @{ $self->{records} });
 		#last  if (!scalar(@{$self->{records}}) || $loop > scalar @{ $self->{records} });  #JWT: 19991222
 		last  if (!scalar(@{$self->{records}}) || $loop >= scalar @{ $self->{records} });  #JWT: 20000609 FIX INFINITE LOOP!
-
+		
 		$_ = $self->{records}->[$loop];
-	
+		
 		if (eval $condition)
 		{
 			#$self->{records}->[$loop] = undef;
@@ -1770,40 +1856,40 @@ sub delete_rows
 		{
 			++$loop;
 		}
-    }
-
+	}
+	
 	$self->{dirty} = 1  if ($status > 0);
-    return $status;
+	return $status;
 }
 
 sub create
 {
 	my ($self, $query) = @_;
-
+	
 	my ($i, @keyfields);
-### create table table1 (field1 number, field2 varchar(20), field3 number(5,3))
-    local (*FILE, $^W);
+	### create table table1 (field1 number, field2 varchar(20), field3 number(5,3))
+	local (*FILE, $^W);
 	local ($/) = $self->{_record};    #JWT:SUPPORT ANY RECORD-SEPARATOR!
-
-    $^W = 0;
+	
+	$^W = 0;
 	if ($query =~ /^create\s+table\s+($self->{path})\s*\((.+)\)\s*$/i)
 	{
 		($table, $extra) = ($1, $2);
-
-	    $query =~ tr/a-z/A-Z/;  #ADDED 20000225;
-	    #$extra =~ tr/a-z/A-Z/;  #ADDED 20000225;
+		
+		$query =~ tr/a-z/A-Z/;  #ADDED 20000225;
+		#$extra =~ tr/a-z/A-Z/;  #ADDED 20000225;
 		$extra =~ s/^\s*//;
 		$extra =~ s/\s*$//;
 		$extra =~ s/\((.*?)\)/
 				my ($precision) = $1;
-				$precision =~ s|\,|\x02|g;   #PROTECT COMMAS IN ().
-				"($precision)"/eg;
+		$precision =~ s|\,|\x02|g;   #PROTECT COMMAS IN ().
+		"($precision)"/eg;
 		$extra =~ s/([\'\"])([^\1]*?)\1/
 				my ($quote) = $1;
-				my ($str) = $2;
-				$str =~ s|\,|\x02|g;   #PROTECT COMMAS IN QUOTES.
-				"$quote$str$quote"/eg;
-
+		my ($str) = $2;
+		$str =~ s|\,|\x02|g;   #PROTECT COMMAS IN QUOTES.
+		"$quote$str$quote"/eg;
+		
 		my (@fieldlist) = split(/,/,$extra);
 		my ($fields) = '';
 		for ($i=0;$i<=$#fieldlist;$i++)
@@ -1824,10 +1910,10 @@ sub create
 			#$i =~ s/^\s*\(\s*//;
 			last  unless ($i =~ /\S/);
 			$i =~ s/\s+DEFAULT\s+(?:([\'\"])([^\1]*?)\1|([\+\-]?[\d\.]+)|(NULL))$/
-				my ($value) = $4 || $3 || $2 || $1;
-				$value = ''  if ($4);
-				push (@values, $value);
-				"=<3>"/ieg;
+					my ($value) = $4 || $3 || $2 || $1;
+			$value = ''  if ($4);
+			push (@values, $value);
+			"=<3>"/ieg;
 			$i =~ s/\s+/=/;
 			$i =~ tr/a-z/A-Z/;
 			$fieldname = $i;
@@ -1885,7 +1971,7 @@ sub create
 					return (-519);
 				}
 				if (($tp eq 'FLOAT') 
-						&& (int($value) != int($rawvalue)))
+				&& (int($value) != int($rawvalue)))
 				{
 					$errdetails = "$fieldname to $len chars";
 					return (-519);
@@ -1946,10 +2032,10 @@ sub create
 	elsif ($query =~ /^create\s+sequence\s+($self->{path})(?:\s+inc(?:rement)?\s+by\s+(\d+))?(?:\s+start\s+with\s+(\d+))?/i)
 	{
 		my ($seqfid, $incval, $startval) = ($1, $2, $3);
-
+		
 		$incval = 0  unless ($incval);
 		$startval = 1  unless ($startval);
-
+		
 		my ($new_file) = $self->get_path_info($seqfid) . '.seq';
 		$new_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
 		if (open (FILE, ">$new_file"))
@@ -1966,13 +2052,13 @@ sub create
 
 sub alter
 {
-    my ($self, $query) = @_;
-    my ($i, $path, $regex, $table, $extra, $type, $column, $count, $status);
-    my ($posn);
-
-    $path  = $self->{path};
-    $regex = $self->{column};
-
+	my ($self, $query) = @_;
+	my ($i, $path, $regex, $table, $extra, $type, $column, $count, $status);
+	my ($posn);
+	
+	$path  = $self->{path};
+	$regex = $self->{column};
+	
 	if ($query =~ /^alter\s+table\s+($path)\s+(.+)$/io)
 	{
 		($table, $extra) = ($1, $2);
@@ -1981,17 +2067,17 @@ sub alter
 			($type, $columnstuff) = ($1, $2);
 			$columnstuff =~ s/^\s*\(//;
 			$columnstuff =~ s/\)\s*$//;
-###alter table table2 add (newcol1  varchar(5), newcol2 varchar(10))
+			###alter table table2 add (newcol1  varchar(5), newcol2 varchar(10))
 			$columnstuff =~ s/\((.*?)\)/
-				my ($precision) = $1;
-				$precision =~ s|\,|\x02|g;   #PROTECT COMMAS IN ().
-				"($precision)"/eg;
+					my ($precision) = $1;
+			$precision =~ s|\,|\x02|g;   #PROTECT COMMAS IN ().
+			"($precision)"/eg;
 			$columnstuff =~ s/([\'\"])([^\1]*?)\1/
-				my ($quote) = $1;
-				my ($str) = $2;
-				$str =~ s|\,|\x02|g;   #PROTECT COMMAS IN QUOTES.
-				"$quote$str$quote"/eg;
-
+					my ($quote) = $1;
+			my ($str) = $2;
+			$str =~ s|\,|\x02|g;   #PROTECT COMMAS IN QUOTES.
+			"$quote$str$quote"/eg;
+			
 			$thefid = $table;
 			$self->check_for_reload ($table) || return (-501);
 			my (@values) = ();
@@ -2005,10 +2091,10 @@ sub alter
 				last  unless ($i =~ /\S/);
 				$i =~ s/\x02/\,/g;
 				$i =~ s/\s+DEFAULT\s+(?:([\'\"])([^\1]*?)\1|([\+\-]?[\d\.]+)|(NULL))$/
-					my ($value) = $4 || $3 || $2 || $1;
-					$value = "\x04"  if ($4);
-					push (@values, $value);
-					"=\x03"/ieg;
+						my ($value) = $4 || $3 || $2 || $1;
+				$value = "\x04"  if ($4);
+				push (@values, $value);
+				"=\x03"/ieg;
 				$posn = undef;
 				$posn = $1  if ($i =~ s/^(\d+)\s*//);
 				$i =~ s/\s+/=/;
@@ -2063,12 +2149,12 @@ sub alter
 				}
 				$x =~ s/\x03/
 						$self->{defaults}->{$fd} = shift(@values);
-						#$self->{defaults}->{$fd} =~ s|\x02|\,|g;
-						$self->{defaults}->{$fd}/eg;
+				#$self->{defaults}->{$fd} =~ s|\x02|\,|g;
+				$self->{defaults}->{$fd}/eg;
 				$self->{fields}->{$fd} = 1;
 				$self->{types}->{$fd} = $tp;
 				$self->{defaults}->{$fd} = $olddf  
-					if ((defined $olddf) && !(defined $self->{defaults}->{$fd}));
+				if ((defined $olddf) && !(defined $self->{defaults}->{$fd}));
 				$self->{defaults}->{$fd} = undef  if ($self->{defaults}->{$fd} eq "\x04");
 				if ($x =~ s/\,\s*(\d+)//)
 				{
@@ -2093,8 +2179,8 @@ sub alter
 					$self->{defaults}->{$fd} = substr($val,0,
 							${$self->{lengths}}{$fd});
 					unless ($self->{LongTruncOk} 
-							|| $self->{defaults}->{$fd} eq $val
-							|| ${$self->{types}}{$fd} eq 'FLOAT')
+					|| $self->{defaults}->{$fd} eq $val
+					|| ${$self->{types}}{$fd} eq 'FLOAT')
 					{
 						$errdetails = "$fd to ${$self->{lengths}}{$fd} chars";
 						return (-519);
@@ -2111,7 +2197,7 @@ sub alter
 								$self->{defaults}->{$fd});
 						$self->{defaults}->{$fd} = $val;
 					}
-
+					
 					#THIS CODE SETS ALL EMPTY VALUES FOR THIS FIELD TO THE 
 					#DEFAULT VALUE.  ORACLE DOES NOT DO THIS!
 					#for ($j=0;$j < scalar @{ $self->{records} }; $j++)
@@ -2125,8 +2211,8 @@ sub alter
 					if (defined $posn)
 					{
 						my (@myorder) = (@{ $self->{order} }[0..($posn-1)], 
-							$fd, 
-							@{ $self->{order} }[$posn..$#{ $self->{order} }]);
+								$fd, 
+								@{ $self->{order} }[$posn..$#{ $self->{order} }]);
 						@{ $self->{order} } = @myorder;
 					}
 					else
@@ -2144,8 +2230,8 @@ sub alter
 							{
 								splice (@{ $self->{order} }, $j, 1);
 								my (@myorder) = (@{ $self->{order} }[0..($posn-1)], 
-									$fd, 
-									@{ $self->{order} }[$posn..$#{ $self->{order} }]);
+										$fd, 
+										@{ $self->{order} }[$posn..$#{ $self->{order} }]);
 								@{ $self->{order} } = @myorder;
 								last;
 							}
@@ -2168,7 +2254,7 @@ sub alter
 					delete $self->{scales}->{$fd};
 				}
 			}
-
+			
 			$status = $self->parse_columns ("\L$type\E", $column);
 			$self->{dirty} = 1;
 			$self->commit($table);
@@ -2176,7 +2262,7 @@ sub alter
 		}
 		else
 		{
-	 	   return (-506);
+			return (-506);
 		}
 	}
 	else
@@ -2187,256 +2273,277 @@ sub alter
 
 sub insert
 {
-    my ($self, $query) = @_;
-    my ($i, $path, $table, $columns, $values, $status);
-
-    $path = $self->{path};
-    if ($query =~ /^insert\s+into\s+                            # Keyword
-                   ($path)\s*                                  # Table
-                   (?:\((.+?)\)\s*)?                               # Keys
-                   values\s*                                    # 'values'
-                   \((.+)\)$/ixo)
-{   #JWT: MAKE COLUMN LIST OPTIONAL!
-
-	($table, $columns, $values) = ($1, $2, $3);
-	$thefid = $table;
-	$self->check_for_reload ($table) || return (-501);
-	$columns =~ s/\s//g;
-	$columns = join(',', @{ $self->{order} })  unless ($columns =~ /\S/);  #JWT
-	#$self->check_for_reload ($table) || return (-501);
-	return (-511)  unless (-w $self->{file});   #ADDED 19991207!
-	unless ($columns =~ /\S/)
-	{
-		local (*FILE);
-		local ($/) = $self->{_record};    #JWT:SUPPORT ANY RECORD-SEPARATOR!
-		#??? $self->{file} =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});     #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
-		$thefid = $self->{file};
-		open(FILE, $self->{file}) || return (-501);
-		binmode FILE;   #20000404
-		$columns = <FILE>;
-		#chop ($columns);
-		chomp ($columns);  #20000927
-		$columns =~ s/$self->{_read}/,/g;
-		@{$self->{order}} = split(/,/, $columns);
-		close FILE;
-	}
-
-	$values =~ s/\\\\/\x02/g;         #PROTECT "\\"
-	#$values =~ s/\\\'|\'\'/\x03/g;    #PROTECT '', AND \'. #CHANGED 20000303 TO NEXT 2.
-	$values =~ s/\'\'/\x03\x03/g;    #PROTECT '', AND \'.
-	$values =~ s/\\\'/\x03/g;    #PROTECT '', AND \'.
+	my ($self, $query) = @_;
+	my ($i, $path, $table, $columns, $values, $status);
 	
-	$values =~ s/\'(.*?)\'/
-			my ($j)=$1; 
-			$j=~s|,|\x04|g;         #PROTECT "," IN QUOTES.
-			"'$j'"
-	/eg;
+	$path = $self->{path};
+	if ($query =~ /^insert\s+into\s+                            # Keyword
+			($path)\s*                                  # Table
+			(?:\((.+?)\)\s*)?                               # Keys
+	values\s*                                    # 'values'
+			\((.+)\)$/ixo)
+	{   #JWT: MAKE COLUMN LIST OPTIONAL!
 		
-	@values = split(/,/,$values);
-	$values = '';
-	for $i (0..$#values)
-	{
-		$values[$i] =~ s/^\s+//;      #STRIP LEADING & TRAILING SPACES.
-		$values[$i] =~ s/\s+$//;
-		$values[$i] =~ s/\x03/\'/g;   #RESTORE PROTECTED SINGLE QUOTES HERE.
-		$values[$i] =~ s/\x02/\\/g;   #RESTORE PROTECTED SLATS HERE.
-		$values[$i] =~ s/\x04/,/g;    #RESTORE PROTECTED COMMAS HERE.
-		if ($values[$i] =~ /^[_a-zA-Z]/)
+		($table, $columns, $values) = ($1, $2, $3);
+		$thefid = $table;
+		$self->check_for_reload ($table) || return (-501);
+		$columns =~ s/\s//g;
+		$columns = join(',', @{ $self->{order} })  unless ($columns =~ /\S/);  #JWT
+		#$self->check_for_reload ($table) || return (-501);
+		return (-511)  unless (-w $self->{file});   #ADDED 19991207!
+		unless ($columns =~ /\S/)
 		{
-			if ($values[$i] =~ /\s*(\w+).NEXTVAL\s*$/ 
-					|| $values[$i] =~ /\s*(\w+).CURVAL\s*$/)
+			local (*FILE);
+			local ($/) = $self->{_record};    #JWT:SUPPORT ANY RECORD-SEPARATOR!
+			#??? $self->{file} =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});     #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
+			$thefid = $self->{file};
+			open(FILE, $self->{file}) || return (-501);
+			binmode FILE;   #20000404
+			$columns = <FILE>;
+			#chop ($columns);
+			chomp ($columns);  #20000927
+			$columns =~ s/$self->{_read}/,/g;
+			@{$self->{order}} = split(/,/, $columns);
+			close FILE;
+		}
+#print "<BR>unprotected values =$values=\n";
+		$values =~ s/\\\\/\x02/g;         #PROTECT "\\"
+		#$values =~ s/\\\'|\'\'/\x03/g;    #PROTECT '', AND \'. #CHANGED 20000303 TO NEXT 2.
+		$values =~ s/\'\'/\x03\x03/g;    #PROTECT '', AND \'.
+				$values =~ s/\\\'/\x03/g;    #PROTECT '', AND \'.
+				
+		$values =~ s/\'(.*?)\'/
+				my ($j)=$1; 
+				$j=~s|,|\x04|g;         #PROTECT "," IN QUOTES.
+				$j=~s|\(|\x05|g;         #PROTECT "(" IN QUOTES.  #ADDED 20001012
+				$j=~s|\)|\x06|g;         #PROTECT ")" IN QUOTES.  #ADDED 20001012
+				"'$j'"
+		/eg;
+
+		#NEXT 3 REGICES ADDED 20001011 SO FUNCTIONS, IE. TO_DATE CAN HAVE >1 ARGS!
+		1 while ($values =~ s/\(([^\(\)]*?)\)/
+				my ($j)=$1; 
+				$j=~s|,|\x04|g;         #PROTECT "," IN QUOTES.
+				"\x05$j\x06"
+		/eg);
+		$values =~ s/\x05/\(/g;
+		$values =~ s/\x06/\)/g;
+#print "<BR>  Protected values =$values=\n";
+
+		@values = split(/,/,$values);
+		$values = '';
+		for $i (0..$#values)
+		{
+			$values[$i] =~ s/^\s+//;      #STRIP LEADING & TRAILING SPACES.
+			$values[$i] =~ s/\s+$//;
+			$values[$i] =~ s/\x03/\'/g;   #RESTORE PROTECTED SINGLE QUOTES HERE.
+			$values[$i] =~ s/\x02/\\/g;   #RESTORE PROTECTED SLATS HERE.
+			$values[$i] =~ s/\x04/,/g;    #RESTORE PROTECTED COMMAS HERE.
+			if ($values[$i] =~ /^[_a-zA-Z]/)
 			{
-				my ($seq_file) = $self->get_path_info($1) . '.seq';
-				$seq_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
-				open (FILE, "<$seq_file") || return (-511);
-				$x = <FILE>;
-				#chomp($x);
-				$x =~ s/\s+$//;   #20000113  CHOMP WON'T WORK HERE IF RECORD DELIMITER SET TO OTHER THAN \n!
-				($incval, $startval) = split(/,/,$x);
-				close (FILE);
-				$_ = $values[$i];
-				if (/\s*(\w+).NEXTVAL\s*$/)
+				if ($values[$i] =~ /\s*(\w+).NEXTVAL\s*$/ 
+						|| $values[$i] =~ /\s*(\w+).CURRVAL\s*$/)
 				{
-					open (FILE, ">$seq_file") || return (-511);
-					$incval += ($startval || 1);
-					print FILE "$incval,$startval\n";
+					my ($seq_file) = $self->get_path_info($1) . '.seq';
+					$seq_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
+					open (FILE, "<$seq_file") || return (-511);
+					$x = <FILE>;
+					#chomp($x);
+					$x =~ s/\s+$//;   #20000113  CHOMP WON'T WORK HERE IF RECORD DELIMITER SET TO OTHER THAN \n!
+					($incval, $startval) = split(/,/,$x);
 					close (FILE);
+					$_ = $values[$i];
+					if (/\s*(\w+).NEXTVAL\s*$/)
+					{
+						open (FILE, ">$seq_file") || return (-511);
+						$incval += ($startval || 1);
+						print FILE "$incval,$startval\n";
+						close (FILE);
+					}
+					$values[$i] = $incval;
 				}
-				$values[$i] = $incval;
-			}
-			else
-			{
-				#eval {$values[$i] = &{$values[$i]} };
-				$values[$i] = eval $values[$i];   #FUNCTION EVAL 2
-				return (-517)  if ($@);
+				else
+				{
+					#eval {$values[$i] = &{$values[$i]} };
+#print "-???2- i=$i= eval=$values[$i]= err=$@=\n";
+					$values[$i] = eval $values[$i];   #FUNCTION EVAL 2
+#print "-???3- eval=$values[$i]= err=$@=\n";
+					return (-517)  if ($@);
+				}
 			}
 		}
-	};
-	chop($values);
-	$self->check_columns ($columns)  || return (-502);
-
-	$status = $self->insert_data ($columns, @values);
-					      
-	return $status;
-	} else {
+		;
+		chop($values);
+		$self->check_columns ($columns)  || return (-502);
+		
+		$status = $self->insert_data ($columns, @values);
+		
+		return $status;
+	}
+	else
+	{
 		return (-508);
 	}
 }
 
 sub insert_data
 {
-    my ($self, $column_string, @values) = @_;
-    my (@columns, $hash, $loop, $column, $j, $k);
+	my ($self, $column_string, @values) = @_;
+	my (@columns, $hash, $loop, $column, $j, $k);
 	$column_string =~ tr/a-z/A-Z/;
-    @columns = split (/,/, $column_string);
-    #JWT: @values  = $self->quotewords (',', 0, $value_string);
-
-    if ($#columns = $#values) {
-    
-	my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
-	my ($matchcnt) = 0;
+	@columns = split (/,/, $column_string);
+	#JWT: @values  = $self->quotewords (',', 0, $value_string);
 	
-	$hash = {};
-
-    foreach $column (@{ $self->{order} })
-    {
-		$column =~ tr/a-z/A-Z/;   #JWT
-		$hash->{$column} = $self->{defaults}->{$column}  
-				if (length($self->{defaults}->{$column}));
-    }
-
-	for ($loop=0; $loop <= $#columns; $loop++)
+	if ($#columns = $#values)
 	{
-	    $column = $columns[$loop];
-		$column =~ tr/a-z/A-Z/;   #JWT
-	
-		my ($v);
-		if ($self->{fields}->{$column})
+		
+		my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
+		my ($matchcnt) = 0;
+		
+		$hash = {};
+		
+		foreach $column (@{ $self->{order} })
 		{
-			$values[$loop] =~ s/^\'(.*)\'$/my ($stuff) = $1; 
-			#$stuff =~ s|\'|\\\'|g;
-			$stuff =~ s|\'\'|\'|g;
-			$stuff/e;
-			$values[$loop] =~ s|^\'$||;      #HANDLE NULL VALUES!!!.
-			if (length($values[$loop]) || !length($self->{defaults}->{$column}))
-			{
-				$v = $values[$loop];
-			}
-			else
-			{
-				$v = $self->{defaults}->{$column};
-			}
-			if (${$self->{types}}{$column} =~ /$NUMERICTYPES/)
-			{
-				$hash->{$column} = sprintf(('%.'.${$self->{scales}}{$column}.'f'), $v);
-			}
-			else
-			{
-				$hash->{$column} = $v;
-			}
-			$v = substr($hash->{$column},0,${$self->{lengths}}{$column});
-			unless ($self->{LongTruncOk} || $v eq $hash->{$column} || 
-					(${$self->{types}}{$column} eq 'FLOAT'))
-			{
-				$errdetails = "$column to ${$self->{lengths}}{$column} chars";
-				return (-519);
-			}
-			if ((${$self->{types}}{$column} eq 'FLOAT') 
-					&& (int($v) != int($hash->{$column})))
-			{
-				$errdetails = "$column to ${$self->{lengths}}{$column} chars";
-				return (-519);
-			}
-			elsif (${$self->{types}}{$column} eq 'CHAR')   #ADDED 20000327!
-			{
-				$hash->{$column} = sprintf('%-'.${$self->{lengths}}{$column}.'s',$v);
-			}
-			else
-			{
-				$hash->{$column} = $v;
-			}
+			$column =~ tr/a-z/A-Z/;   #JWT
+			$hash->{$column} = $self->{defaults}->{$column}  
+			if (length($self->{defaults}->{$column}));
 		}
-	}
-
-	#20000201 - FIX UNIQUE-KEY TEST FOR LARGE DATASETS.
-	
-recloop: 	for ($k=0;$k < scalar @{ $self->{records} }; $k++)  #CHECK EACH RECORD.
-	{
-		$matchcnt = 0;
-valueloop:		foreach $column (keys %$hash)   #CHECK EACH NEW VALUE AGAINST IT'S RESPECTIVE COLUMN.
+		
+		for ($loop=0; $loop <= $#columns; $loop++)
 		{
-keyloop:			for ($j=0;$j<=$#keyfields;$j++)  
+			$column = $columns[$loop];
+			$column =~ tr/a-z/A-Z/;   #JWT
+			
+			my ($v);
+			if ($self->{fields}->{$column})
 			{
-				if ($column eq $keyfields[$j])
+				$values[$loop] =~ s/^\'(.*)\'$/my ($stuff) = $1; 
+				#$stuff =~ s|\'|\\\'|g;
+				$stuff =~ s|\'\'|\'|g;
+				$stuff/e;
+				$values[$loop] =~ s|^\'$||;      #HANDLE NULL VALUES!!!.
+				if (length($values[$loop]) || !length($self->{defaults}->{$column}))
 				{
-					if ($self->{records}->[$k]->{$column} eq $hash->{$column})
-					{
-						++$matchcnt;
-						return (-518)  if ($matchcnt && $matchcnt > $#keyfields);  #ALL KEY FIELDS WERE DUPLICATES!
-					}
+					$v = $values[$loop];
+				}
+				else
+				{
+					$v = $self->{defaults}->{$column};
+				}
+				if (${$self->{types}}{$column} =~ /$NUMERICTYPES/)
+				{
+					$hash->{$column} = sprintf(('%.'.${$self->{scales}}{$column}.'f'), $v);
+				}
+				else
+				{
+					$hash->{$column} = $v;
+				}
+				$v = substr($hash->{$column},0,${$self->{lengths}}{$column});
+				unless ($self->{LongTruncOk} || $v eq $hash->{$column} || 
+						(${$self->{types}}{$column} eq 'FLOAT'))
+				{
+					$errdetails = "$column to ${$self->{lengths}}{$column} chars";
+					return (-519);
+				}
+				if ((${$self->{types}}{$column} eq 'FLOAT') 
+				&& (int($v) != int($hash->{$column})))
+				{
+					$errdetails = "$column to ${$self->{lengths}}{$column} chars";
+					return (-519);
+				}
+				elsif (${$self->{types}}{$column} eq 'CHAR')   #ADDED 20000327!
+				{
+					$hash->{$column} = sprintf('%-'.${$self->{lengths}}{$column}.'s',$v);
+				}
+				else
+				{
+					$hash->{$column} = $v;
 				}
 			}
 		}
-		#return (-518)  if ($matchcnt && $matchcnt > $#keyfields);  #ALL KEY FIELDS WERE DUPLICATES!
+		
+		#20000201 - FIX UNIQUE-KEY TEST FOR LARGE DATASETS.
+		
+recloop: 	for ($k=0;$k < scalar @{ $self->{records} }; $k++)  #CHECK EACH RECORD.
+		{
+			$matchcnt = 0;
+valueloop:		foreach $column (keys %$hash)   #CHECK EACH NEW VALUE AGAINST IT'S RESPECTIVE COLUMN.
+			{
+keyloop:				for ($j=0;$j<=$#keyfields;$j++)  
+				{
+					if ($column eq $keyfields[$j])
+					{
+						if ($self->{records}->[$k]->{$column} eq $hash->{$column})
+						{
+							++$matchcnt;
+							return (-518)  if ($matchcnt && $matchcnt > $#keyfields);  #ALL KEY FIELDS WERE DUPLICATES!
+						}
+					}
+				}
+			}
+			#return (-518)  if ($matchcnt && $matchcnt > $#keyfields);  #ALL KEY FIELDS WERE DUPLICATES!
+		}
+		
+		
+		push @{ $self->{records} }, $hash;
+		
+		$self->{dirty} = 1;
+		
+		return (1);
 	}
-
-
-	push @{ $self->{records} }, $hash;
-	
-	$self->{dirty} = 1;
-	
-	return (1);
-    } else {
+	else
+	{
 		$errdetails = "$#columns != $#values";   #20000114
 		return (-509);
-    }
+	}
 }						    
 
 sub write_file
 {
-    my ($self, $new_file) = @_;
-    my ($i, $j, $status, $loop, $record, $column, $value, $fields, $record_string);
+	my ($self, $new_file) = @_;
+	my ($i, $j, $status, $loop, $record, $column, $value, $fields, $record_string);
 	my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
-
-    local (*FILE, $^W);
+	
+	local (*FILE, $^W);
 	local ($/) = $self->{_record};    #JWT:SUPPORT ANY RECORD-SEPARATOR!
-
-    $^W = 0;
-
-    #$status = (scalar @{ $self->{records} }) ? 1 : -513;
-    $status = 1;   #JWT 19991222
-
+	
+	$^W = 0;
+	
+	#$status = (scalar @{ $self->{records} }) ? 1 : -513;
+	$status = 1;   #JWT 19991222
+	
 	return 1  if $#{$self->{order}} < 0;  #ADDED 20000225 PREVENT BLANKING OUT TABLES, IE IF USER CREATES SEQUENCE W/SAME NAME AS TABLE, THEN COMMITS!
 	
-		#########$new_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
-    if ( ($status >= 1) && (open (FILE, ">$new_file")) ) {
-	binmode FILE;   #20000404
-
-	if (($^O eq 'MSWin32') or ($^O =~ /cygwin/i))
+	#########$new_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
+	if ( ($status >= 1) && (open (FILE, ">$new_file")) )
 	{
-		$self->lock || $self->display_error (-515);
-	}
-	else    #GOOD, MUST BE A NON-M$ SYSTEM :-)
-	{
-		eval { flock (FILE, $JSprite::LOCK_EX) || die };
-
-		if ($@)
+		binmode FILE;   #20000404
+		
+		if (($^O eq 'MSWin32') or ($^O =~ /cygwin/i))
 		{
-			$self->lock || $self->display_error (-515)  if ($@);
+			$self->lock || $self->display_error (-515);
 		}
-	}
-	
-	#$fields = join ($self->{_write}, @{ $self->{order} });
-	$fields = '';
-	for $i (0..$#{$self->{order}})
-	{
-		$fields .= ${$self->{order}}[$i] . '=';
-		for ($j=0;$j<=$#keyfields;$j++)  #JWT: MARK KEY FIELDS.
+		else    #GOOD, MUST BE A NON-M$ SYSTEM :-)
 		{
-			$fields .= '*'  if (${$self->{order}}[$i] eq $keyfields[$j])
+			eval { flock (FILE, $JSprite::LOCK_EX) || die };
+			
+			if ($@)
+			{
+				$self->lock || $self->display_error (-515)  if ($@);
+			}
 		}
-		$fields .= ${$self->{types}}{${$self->{order}}[$i]} . '(' 
-				. ${$self->{lengths}}{${$self->{order}}[$i]};
+		
+		#$fields = join ($self->{_write}, @{ $self->{order} });
+		$fields = '';
+		for $i (0..$#{$self->{order}})
+		{
+			$fields .= ${$self->{order}}[$i] . '=';
+			for ($j=0;$j<=$#keyfields;$j++)  #JWT: MARK KEY FIELDS.
+			{
+				$fields .= '*'  if (${$self->{order}}[$i] eq $keyfields[$j])
+			}
+			$fields .= ${$self->{types}}{${$self->{order}}[$i]} . '(' 
+					. ${$self->{lengths}}{${$self->{order}}[$i]};
 		if (${$self->{scales}}{${$self->{order}}[$i]} 
 				&& ${$self->{types}}{${$self->{order}}[$i]} =~ /$NUMERICTYPES/)
 		{
@@ -2445,72 +2552,75 @@ sub write_file
 		#$fields .= ')' . $self->{_write};
 		$fields .= ')';
 		$fields .= '='. ${$self->{defaults}}{${$self->{order}}[$i]}  
-				if (length(${$self->{defaults}}{${$self->{order}}[$i]}));
+		if (length(${$self->{defaults}}{${$self->{order}}[$i]}));
 		$fields .= $self->{_write};
-	}
-	$fields =~ s/$self->{_write}$//;
-
-	#$fields =~ tr/a-z/A-Z/;   #JWT:MAKE SURE COLUMNS are UPPERCASE!
-	print FILE "$fields$/";
-
-	for ($loop=0; $loop < scalar @{ $self->{records} }; $loop++) {
-	    $record = $self->{records}->[$loop];
-
-	    next unless (defined $record);
-
-         $record_string = '';
-
- 	    foreach $column (@{ $self->{order} })
- 	    {
-			if (${$self->{types}}{$column} eq 'CHAR') #20000224
+		}
+		$fields =~ s/$self->{_write}$//;
+		
+		#$fields =~ tr/a-z/A-Z/;   #JWT:MAKE SURE COLUMNS are UPPERCASE!
+		print FILE "$fields$/";
+		
+		for ($loop=0; $loop < scalar @{ $self->{records} }; $loop++)
+		{
+			$record = $self->{records}->[$loop];
+			
+			next unless (defined $record);
+			
+			$record_string = '';
+			
+			foreach $column (@{ $self->{order} })
 			{
-				$value = sprintf(
-						'%-'.${$self->{lengths}}{$column}.'s',
-						$record->{$column});
+				if (${$self->{types}}{$column} eq 'CHAR') #20000224
+				{
+					$value = sprintf(
+					'%-'.${$self->{lengths}}{$column}.'s',
+							$record->{$column});
+				}
+				#elsif (${$self->{types}}{$column} =~ /$NUMERICTYPES/)
+				#{
+				#	$value = sprintf(('%.'.${$self->{scales}}{$column}.'f'), 
+				#			$record->{$column});
+				#}
+				else
+				{
+					$value = $record->{$column};
+				}
+				
+				$record_string .= "$self->{_write}$value";
 			}
-			#elsif (${$self->{types}}{$column} =~ /$NUMERICTYPES/)
-			#{
-			#	$value = sprintf(('%.'.${$self->{scales}}{$column}.'f'), 
-			#			$record->{$column});
-			#}
-			else
-			{
-				$value = $record->{$column};
-			}
-
-			$record_string .= "$self->{_write}$value";
-	    }
-
-	    $record_string =~ s/^$self->{_write}//o;
-
-	    print FILE "$record_string$/";
+			
+			$record_string =~ s/^$self->{_write}//o;
+			
+			print FILE "$record_string$/";
+		}
+		
+		close (FILE);
+		
+		my (@stats) = stat ($new_file);
+		$self->{timestamp} = $stats[9];
+		
+		$self->unlock || $self->display_error (-516);
 	}
-
-	close (FILE);
-
-	my (@stats) = stat ($new_file);
-	$self->{timestamp} = $stats[9];
-
-        $self->unlock || $self->display_error (-516);
-    } else {
-	$status = ($status < 1) ? $status : -511;
-    }
-    return $status;
+	else
+	{
+		$status = ($status < 1) ? $status : -511;
+	}
+	return $status;
 }
 
 sub load_database 
 {
-    my ($self, $file) = @_;
-    my ($i, $header, @fields, $no_fields, @record, $hash, $loop, $tp, $dflt);
-
-    local (*FILE);
+	my ($self, $file) = @_;
+	my ($i, $header, @fields, $no_fields, @record, $hash, $loop, $tp, $dflt);
+	
+	local (*FILE);
 	local ($/) = $self->{_record};    #JWT:SUPPORT ANY RECORD-SEPARATOR!
-
+	
 	########$file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
 	$thefid = $file;
-    open (FILE, $file) || return (-501);
+	open (FILE, $file) || return (-501);
 	binmode FILE;   #20000404
-
+	
 	if (($^O eq 'MSWin32') or ($^O =~ /cygwin/i))
 	{
 		$self->lock || $self->display_error (-515);
@@ -2518,105 +2628,107 @@ sub load_database
 	else    #GOOD, MUST BE A NON-M$ SYSTEM :-)
 	{
 		eval { flock (FILE, $JSprite::LOCK_EX) || die };
-
+		
 		if ($@)
 		{
 			$self->lock || $self->display_error (-515)  if ($@);
 		}
 	}
-
-    $_ = <FILE>;
+	
+	$_ = <FILE>;
 	chomp;          #JWT:SUPPORT ANY RECORD-SEPARATOR!
-
-    ($header)  = /^ *(.*?) *$/;
+	
+	($header)  = /^ *(.*?) *$/;
 	#####################$header =~ tr/a-z/A-Z/;   #JWT  20000316
-    @fields    = split (/$self->{_read}/o, $header);
-    $no_fields = $#fields;
-
-undef %{ $self->{types} };
-undef %{ $self->{lengths} };
-undef %{ $self->{scales} };   #ADDED 20000306.
-$self->{use_fields} = '';
-$self->{key_fields} = '';   #20000223 - FIX LOSS OF KEY ASTERISK ON ROLLBACK!
-foreach $i (0..$#fields)
-{
-	$dflt = undef;
-	($fields[$i],$tp,$dflt) = split(/=/,$fields[$i]);
-	$fields[$i] =~ tr/a-z/A-Z/;
-	$tp = 'VARCHAR(40)'  unless($tp);
-	$tp =~ tr/a-z/A-Z/;
-	$self->{key_fields} .= $fields[$i] . ',' 
-			if ($tp =~ s/^\*//);   #JWT:  *TYPE means KEY FIELD!
-	$ln = 40;
-	$ln = 10  if ($tp =~ /NUM|INT|FLOAT|DOUBLE/);
-	$ln = 5000  if ($tp =~ /LONG|BLOB|MEMO/);
-	$ln = $2  if ($tp =~ s/(.*)\((.*)\)/$1/);
-	${$self->{types}}{$fields[$i]} = $tp;
-	${$self->{lengths}}{$fields[$i]} = $ln;
-	${$self->{defaults}}{$fields[$i]} = undef;
-	${$self->{defaults}}{$fields[$i]} = $dflt  if (defined $dflt);
-	if (${$self->{lengths}}{$fields[$i]} =~ s/\,(\d+)//)
+	@fields    = split (/$self->{_read}/o, $header);
+	$no_fields = $#fields;
+	
+	undef %{ $self->{types} };
+	undef %{ $self->{lengths} };
+	undef %{ $self->{scales} };   #ADDED 20000306.
+	$self->{use_fields} = '';
+	$self->{key_fields} = '';   #20000223 - FIX LOSS OF KEY ASTERISK ON ROLLBACK!
+	foreach $i (0..$#fields)
 	{
-		#NOTE:  ORACLE NEGATIVE SCALES NOT CURRENTLY SUPPORTED!
+		$dflt = undef;
+		($fields[$i],$tp,$dflt) = split(/=/,$fields[$i]);
+		$fields[$i] =~ tr/a-z/A-Z/;
+		$tp = 'VARCHAR(40)'  unless($tp);
+		$tp =~ tr/a-z/A-Z/;
+		$self->{key_fields} .= $fields[$i] . ',' 
+				if ($tp =~ s/^\*//);   #JWT:  *TYPE means KEY FIELD!
+		$ln = 40;
+		$ln = 10  if ($tp =~ /NUM|INT|FLOAT|DOUBLE/);
+		$ln = 5000  if ($tp =~ /LONG|BLOB|MEMO/);
+		$ln = $2  if ($tp =~ s/(.*)\((.*)\)/$1/);
+		${$self->{types}}{$fields[$i]} = $tp;
+		${$self->{lengths}}{$fields[$i]} = $ln;
+		${$self->{defaults}}{$fields[$i]} = undef;
+		${$self->{defaults}}{$fields[$i]} = $dflt  if (defined $dflt);
+		if (${$self->{lengths}}{$fields[$i]} =~ s/\,(\d+)//)
+		{
+			#NOTE:  ORACLE NEGATIVE SCALES NOT CURRENTLY SUPPORTED!
+			
+			${$self->{scales}}{$fields[$i]} = $1;
+		}
+		elsif (${$self->{types}}{$fields[$i]} eq 'FLOAT')
+		{
+			${$self->{scales}}{$fields[$i]} = ${$self->{lengths}}{$fields[$i]} - 3;
+		}
+		${$self->{scales}}{$fields[$i]} = '0'  unless (${$self->{scales}}{$fields[$i]});
 		
-		${$self->{scales}}{$fields[$i]} = $1;
+		# (JWT 8/8/1998) $self->{use_fields} .= $column_string . ',';    #JWT
+		$self->{use_fields} .= $fields[$i] . ',';    #JWT
 	}
-	elsif (${$self->{types}}{$fields[$i]} eq 'FLOAT')
-	{
-		${$self->{scales}}{$fields[$i]} = ${$self->{lengths}}{$fields[$i]} - 3;
-	}
-	${$self->{scales}}{$fields[$i]} = '0'  unless (${$self->{scales}}{$fields[$i]});
-
-	# (JWT 8/8/1998) $self->{use_fields} .= $column_string . ',';    #JWT
-	$self->{use_fields} .= $fields[$i] . ',';    #JWT
-}
 	chop ($self->{use_fields})  if ($self->{use_fields});  #REMOVE TRAILING ','.
 	chop ($self->{key_fields})  if ($self->{key_fields});
-
-    undef %{ $self->{fields} };
-    undef @{ $self->{order}  };
-
-    $self->{order} = [ @fields ];
-
-    map    { $self->{fields}->{$_} = 1 } @fields;
-    undef @{ $self->{records} } if (scalar @{ $self->{records} });
-
-    while (<FILE>) {
-	chomp;
-	#chop;     #JWT:SUPPORT ANY RECORD-SEPARATOR!
-	next unless ($_);
-	#s/""/\\"/g;   #REMOVED 20000303.
-
-	#if (/['"\\]/) {
-    #        @record = $self->quotewords ($self->{_read}, 0, $_);
-    #    } else {
-            @record = split (/$self->{_read}/o, $_);
-    #    }
-
-	$hash = {};
-
-	for ($loop=0; $loop <= $no_fields; $loop++) {
-	    $hash->{ $fields[$loop] } = $record[$loop];
-	}
-
-	push @{ $self->{records} }, $hash;
-    }
 	
-    close (FILE);
-
-    $self->unlock || $self->display_error (-516);
-
-    return (1);
+	undef %{ $self->{fields} };
+	undef @{ $self->{order}  };
+	
+	$self->{order} = [ @fields ];
+	
+	map    { $self->{fields}->{$_} = 1 } @fields;
+	undef @{ $self->{records} } if (scalar @{ $self->{records} });
+	
+	while (<FILE>)
+	{
+		chomp;
+		#chop;     #JWT:SUPPORT ANY RECORD-SEPARATOR!
+		next unless ($_);
+		#s/""/\\"/g;   #REMOVED 20000303.
+		
+		#if (/['"\\]/) {
+		#        @record = $self->quotewords ($self->{_read}, 0, $_);
+		#    } else {
+		@record = split (/$self->{_read}/o, $_);
+		#    }
+		
+		$hash = {};
+		
+		for ($loop=0; $loop <= $no_fields; $loop++)
+		{
+			$hash->{ $fields[$loop] } = $record[$loop];
+		}
+		
+		push @{ $self->{records} }, $hash;
+	}
+	
+	close (FILE);
+	
+	$self->unlock || $self->display_error (-516);
+	
+	return (1);
 }
 
 sub pscolfn
 {
 	my ($self,$id) = @_;
-	return $id  unless ($id =~ /CURVAL|NEXTVAL/);
+	return $id  unless ($id =~ /CURRVAL|NEXTVAL/);
 	my ($value) = '';
 	my ($seq_file,$col) = split(/\./,$id);
 	$seq_file = $self->get_path_info($seq_file) . '.seq';
-
+	
 	$seq_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
 	open (FILE, "<$seq_file") || return (-511);
 	$x = <FILE>;
@@ -2639,71 +2751,81 @@ sub pscolfn
 ##  NOTE: Derived from lib/Text/ParseWords.pm. Thanks Hal!
 ##--
 
-sub quotewords {   #SPLIT UP USER'S SEARCH-EXPRESSION INTO "WORDS" (TOKENISE)!
+sub quotewords
+{
 
-# THIS CODE WAS COPIED FROM THE PERL "TEXT" MODULE, (ParseWords.pm),
-# written by:  Hal Pomeranz (pomeranz@netcom.com), 23 March 1994
-# (Thanks, Hal!)
-# MODIFIED BY JIM TURNER (6/97) TO ALLOW ESCAPED (REGULAR-EXPRESSION)
-# CHARACTERS TO BE INCLUDED IN WORDS AND TO COMPRESS MULTIPLE OCCURRANCES
-# OF THE DELIMITER CHARACTER TO BE COMPRESSED INTO A SINGLE DELIMITER
-# (NO EMPTY WORDS).
-#
-# The inner "for" loop builds up each word (or $field) one $snippet
-# at a time.  A $snippet is a quoted string, a backslashed character,
-# or an unquoted string.  We fall out of the "for" loop when we reach
-# the end of $_ or when we hit a delimiter.  Falling out of the "for"
-# loop, we push the $field we've been building up onto the list of
-# @words we'll be returning, and then loop back and pull another word
-# off of $_.
-#
-# The first two cases inside the "for" loop deal with quoted strings.
-# The first case matches a double quoted string, removes it from $_,
-# and assigns the double quoted string to $snippet in the body of the
-# conditional.  The second case handles single quoted strings.  In
-# the third case we've found a quote at the current beginning of $_,
-# but it didn't match the quoted string regexps in the first two cases,
-# so it must be an unbalanced quote and we croak with an error (which can
-# be caught by eval()).
-#
-# The next case handles backslashed characters, and the next case is the
-# exit case on reaching the end of the string or finding a delimiter.
-#
-# Otherwise, we've found an unquoted thing and we pull of characters one
-# at a time until we reach something that could start another $snippet--
-# a quote of some sort, a backslash, or the delimiter.  This one character
-# at a time behavior was necessary if the delimiter was going to be a
-# regexp (love to hear it if you can figure out a better way).
-
+	#SPLIT UP USER'S SEARCH-EXPRESSION INTO "WORDS" (TOKENISE)!	
+	# THIS CODE WAS COPIED FROM THE PERL "TEXT" MODULE, (ParseWords.pm),
+	# written by:  Hal Pomeranz (pomeranz@netcom.com), 23 March 1994
+	# (Thanks, Hal!)
+	# MODIFIED BY JIM TURNER (6/97) TO ALLOW ESCAPED (REGULAR-EXPRESSION)
+	# CHARACTERS TO BE INCLUDED IN WORDS AND TO COMPRESS MULTIPLE OCCURRANCES
+	# OF THE DELIMITER CHARACTER TO BE COMPRESSED INTO A SINGLE DELIMITER
+	# (NO EMPTY WORDS).
+	#
+	# The inner "for" loop builds up each word (or $field) one $snippet
+	# at a time.  A $snippet is a quoted string, a backslashed character,
+	# or an unquoted string.  We fall out of the "for" loop when we reach
+	# the end of $_ or when we hit a delimiter.  Falling out of the "for"
+	# loop, we push the $field we've been building up onto the list of
+	# @words we'll be returning, and then loop back and pull another word
+	# off of $_.
+	#
+	# The first two cases inside the "for" loop deal with quoted strings.
+	# The first case matches a double quoted string, removes it from $_,
+	# and assigns the double quoted string to $snippet in the body of the
+	# conditional.  The second case handles single quoted strings.  In
+	# the third case we've found a quote at the current beginning of $_,
+	# but it didn't match the quoted string regexps in the first two cases,
+	# so it must be an unbalanced quote and we croak with an error (which can
+	# be caught by eval()).
+	#
+	# The next case handles backslashed characters, and the next case is the
+	# exit case on reaching the end of the string or finding a delimiter.
+	#
+	# Otherwise, we've found an unquoted thing and we pull of characters one
+	# at a time until we reach something that could start another $snippet--
+	# a quote of some sort, a backslash, or the delimiter.  This one character
+	# at a time behavior was necessary if the delimiter was going to be a
+	# regexp (love to hear it if you can figure out a better way).
+	
 	my ($self, $delim, $keep, @lines) = @_;
 	my (@words,$snippet,$field,$q,@quotes);
-
+	
 	$_ = join('', @lines);
-	while ($_) {
+	while ($_)
+	{
 		$field = '';
-		for (;;) {
+		for (;;)
+		{
 			$snippet = '';
 			@quotes = ('\'','"');
-			if (s/^(["'`])(.+?)\1//) {
+			if (s/^(["'`])(.+?)\1//)
+			{
 				$snippet = $2;
 				$snippet = "$1$snippet$1" if ($keep);
-$field .= $snippet;
-last;
+				$field .= $snippet;
+				last;
 			}	
-			elsif (/^["']/) {
+			elsif (/^["']/)
+			{
 				#print "Error:  Unmatched quote near ($_)!<BR>\n";
 				$self->display_error(-512);
 				return ();
 			}
-			elsif (s/^\\(.)//) {
+			elsif (s/^\\(.)//)
+			{
 				$snippet = $1;
 				$snippet = "\\$snippet" if ($keep);
 			}
-			elsif (!$_ || s/^$delim//) {  #REMOVE "+" TO REMOVE DELIMITER-COMPRESSION.
+			elsif (!$_ || s/^$delim//)
+			{#REMOVE "+" TO REMOVE DELIMITER-COMPRESSION.
 				last;
 			}
-			else {
-				while ($_ && !(/^$delim/)) {  #ATTEMPT TO HANDLE TWO QUOTES IN A ROW.
+			else
+			{
+				while ($_ && !(/^$delim/))
+				{#ATTEMPT TO HANDLE TWO QUOTES IN A ROW.
 					last  if (/^['"]/ && ($snippet !~ /\\$/));
 					$snippet .= substr($_, 0, 1);
 					substr($_, 0, 1) = '';
@@ -2711,7 +2833,7 @@ last;
 			}
 			$field .= $snippet;
 		}
-	push(@words, $field);
+		push(@words, $field);
 	}
 	@words;
 }
@@ -2741,7 +2863,7 @@ sub fn_register   #REGISTER SQL-CALLABLE FUNCTIONS.
 	shift  if (ref($_[0]) eq 'HASH');   #20000224
 	my ($fnname, $packagename) = @_;
 	$packagename = 'main'  unless ($packagename);
-
+	
 	eval <<END_EVAL;
 		sub $fnname
 		{

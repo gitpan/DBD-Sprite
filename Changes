@@ -23,4 +23,12 @@ Revision history for Perl extension DBD::Sprite.
 0.13  Tue Oct 10
 	- Fix CaseTableNames attribute to "sprite_CaseTableNames.
 	- Minor docs fix.
+0.14  Thu Oct 12
+	- Added Oracle TO_DATE and CONCAT functions.  Fixed bug now 
+	  allowing more than 1 argument for functions, and minor bug 
+	  which stripped wild-card chars from function results in "LIKE" 
+	  expressions.
+0.15  Thu Nov 02
+	- Fix bug that caused question marks in bound parameter values to be 
+	  treated as additional parameters.
 

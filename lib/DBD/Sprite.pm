@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.13';
+$VERSION = '0.15';
 
 # Preloaded methods go here.
 
@@ -293,7 +293,7 @@ sub prepare
 	
 	$csr->STORE('sprite_params', []);
 	$sqlstr =~ s/([\'\"])([^$1]*?)\?([^$1]*?$1)/$1$2\x02$3/g;  #PROTECT ? IN QUOTES (DATA)!
-	my $num_of_params = ($sqlstr =~ tr/?//);
+	my $num_of_params = ($sqlstr =~ tr/\?//);
 	$sqlstr =~ s/\x02/\?/g;
 	$csr->STORE('NUM_OF_PARAMS', $num_of_params);	
     return ($csr);
@@ -487,9 +487,10 @@ sub execute
     my $sqlstr = $sth->{'Statement'};
     for (my $i = 0;  $i < $numParam;  $i++)
     {
+		$params->[$i] =~ s/\?/\x02/g;   #ADDED 20001023 TO FIX BUG WHEN PARAMETER OTHER THAN LAST CONTAINS A "?"!
         $sqlstr =~ s/\?/"'".$params->[$i]."'"/e;
     }
-
+	$sqlstr =~ s/\x02/\?/g;     #ADDED 20001023!
 	#@{$sth->{resv}} = $sth->{spritedb}->sql($sqlstr);
 	my ($spriteref) = $sth->FETCH('sprite_spritedb');
 
@@ -1147,8 +1148,6 @@ I<Return Value>
             important on these operating systems, as they are for single
             users anyways).
 
-    *       the "and" and "or" operators MUST BE LOWER-CASE.  This will be 
-            non-trivial to fix, so I will when I get a chance, patches welcome!
 
 =head1 SEE ALSO
 

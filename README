@@ -27,12 +27,12 @@ DESCRIPTION
 	4) Autonumbering and user-defined functions are supported.
 	5) You don't need any other modules or databases.  (NO prerequisites 
 	except Perl 5 and the DBI module!
-	6) Quotes are not used around data.
-	7) It is not necessary to call the "$dbh->quote()" method all the time 
+	6) It is not necessary to call the "$dbh->quote()" method all the time 
 	in your sql.
-	8) NULL is handled as an empty string.
-	
-    
+	7) NULL is handled as an empty string.
+	8) Oracle Sequences are supported!
+	9) Numeric, Char(#), and Varchar(#) datatypes are supported!
+  
     See the DBI(3) manpage for details on DBI, the JSprite(3) manpage
     for details on Sprite plus my extensions.
 
@@ -73,6 +73,17 @@ Installation
 
 	NOTE:  You may also need to copy "makesdb.pl" to /usr/local/bin or 
 	somewhere in your path.
+
+Windows install:
+
+	If installing in Windows, you must 1st install the DBI module, 
+create a DBD subdirectory in your Perl's path (run "perl -V" to find out 
+what this is), copy "Sprite.pm" to it, then copy the other files (
+JSprite.pm, OraSpriteFns.pl, and to_date.pl to the same directory you 
+created the DBD subdirectory in.  Then copy the file makesdb.pl to the 
+directory perl itself is in.  These directories (in ActivePerl) are: 
+c:\perl\site\lib and c:\perl\bin respectively.
+
 
 Getting started:
 
