@@ -11,18 +11,15 @@ SYNOPSIS
         $sth->finish();
         $dbh->disconnect();
 
-WARNING
-    THIS IS ALPHA SOFTWARE. It is *only* 'Alpha' because this is it's 1st 
-    release!
-
 DESCRIPTION
+
     The DBD::Sprite module is yet another driver for the DBI (Database
     independent interface for Perl). This one is based on the Sprite "engine"
     by Shishir Gurdavaram.  It differs from DBD::CSV as follows:
     
 	1) It creates and works on true "databases" with user-ids and passwords, 
 	2) The	database author specifies the field delimiters, record delimiters, 
-	user, password, table file path, AND extension for each database. 
+	users, passwords, table file path, AND extension for each database. 
 	3) Transactions (commits and rollbacks) are fully supported! 
 	4) Autonumbering and user-defined functions are supported.
 	5) You don't need any other modules or databases.  (NO prerequisites 
@@ -31,8 +28,10 @@ DESCRIPTION
 	in your sql.
 	7) NULL is handled as an empty string.
 	8) Oracle Sequences are supported!
-	9) Numeric, Char(#), Varchar(#), and Long/Blob datatypes are supported!
+	9) Numeric, Char(#), Varchar(#), and Long/Blob datatypes are supported 
+	and completely sortable!
 	10) Autonumbering (without sequences) is now also supported!
+	11) Your choice of Encryption is now supported
   
     See the DBI(3) manpage for details on DBI, the JSprite(3) manpage
     for details on Sprite plus my extensions.
@@ -96,7 +95,7 @@ Getting started:
 		User password: mypassword
 		Database path: .
 		Table file extension (default .stb): 
-		Record delimiter (default \n): 
+		Record delimiter (default \r\n): 
 		Field delimiter (default ::): 
 
 		This will create a new database text file (mydb.sdb) in the current 
@@ -144,11 +143,6 @@ Creating and dropping tables
 
         $dbh->do("CREATE TABLE $table (id INTEGER, name CHAR(64))");
         $dbh->do("DROP TABLE $table");
-
-    Note that currently only the column names will be stored and no other
-    data. Thus all other information including column type (INTEGER or
-    CHAR(x), for example), column attributes (NOT NULL, PRIMARY KEY, ...)
-    will silently be discarded. This may change in a later release.
 
     A drop just removes the file without any warning.
 
@@ -326,7 +320,7 @@ Error handling
 
 Metadata
 
-    The following attributes are handled by DBI itself and not by DBD::File,
+    The following attributes are handled by DBI itself and not by DBD::Sprite,
     thus they should all work as expected:  I have only used the last 3.
 
         Active
@@ -380,31 +374,47 @@ Metadata
         CursorName
 
     In addition to the DBI attributes, you can use the following dbh
-    attributes.  These attributes are read-only after "connect".
+    attributes.
+
 
     sprite_dbdir
-    		Path to tables for database.
+    		Path to tables for database. (read-only after "connect")
     		
 	sprite_dbext
 		File extension used on table files in the database.
+		(read-only after "connect")
 		
 	sprite_dbuser
-		Current database user.
+		Current database user.  (read-only after "connect")
 		
-	sprite_dbfdelim
-		Field delimiter string in use for the database.
-		
-	sprite_dbrdelim
-		Record delimiter string in use for the database.
-
-
-    The following are Sprite-specific options which can be set when connecting.
-
+    sprite_field  (NEW)
+        Field delimiter string in use for the database.
+        Default specified in database configuration file (<dbname>.sdb)
+        (NEW!) Set to special string 'XML' to store and read tables in XML 
+        format!
+                
+    sprite_read  (NEW)
+        Field delimiter string in use for inputting the database.
+        Default = sprite_field
+        (NEW!) Set to special string 'XML' to tables in XML format!
+                
+    sprite_write  (NEW)
+        Field delimiter string in use for outputting the database.
+        Default = sprite_field
+        (NEW!) Set to special string 'XML' to store tables in XML format!
+        Great for converting existing (non-binary) tables to XML format.
+                
+    sprite_dbfdelim - DEPRECIATED, now use "sprite_field"!
+        Field delimiter string in use for the database.
+                
+    sprite_dbrdelim - DEPRECIATED, now use "sprite_record"!
+        Record delimiter string in use for the database.
+                
     sprite_CaseTableNames
         By default, table names are case-insensitive (as they are in Oracle),
         to make table names case-sensitive (as in MySql), so that one could
         have two separate tables such as "test" and "TEST", set this option
-        to 1.
+        to 1.  (read-only after "connect")
 
 	sprite_Crypt  (NEW)
 		"0" by defalt.  Specifies that encryption is to be used when storing 
@@ -425,6 +435,10 @@ Metadata
 				This allows one to fetch an encrypted table and write it back 
 				out unencrypted.
 
+	sprite_reclimit  (NEW)
+		 Allows user to specify the maximum number of records to be returned 
+		 by a single query.  Default is "0", which permits an unlimited number.
+
     sprite_StrictCharComp
         CHAR fields are always right-padded with spaces to fill out
         the field.  Old (pre 5.17) Sprite behaviour was to require the
@@ -439,7 +453,6 @@ Metadata
     SPRITE_HOME
         Environment variable specifying a path to search for Sprite
         databases (*.sdb) files.
-
 
 
 Driver private methods
@@ -486,36 +499,34 @@ Data restrictions
 
 	Although DBD::Sprite supports the following datatypes:
 		NUMBER FLOAT DOUBLE INT INTEGER NUM CHAR VARCHAR VARCHAR2 
-		DATE LONG BLOB and MEMO, there are really only 4 basic datatypes 
-		(NUMBER, CHAR, VARCHAR, and BLOB).  This is because Perl treates 
-		everything as simple strings.  The first 5 are all treated as "numbers" 
-		by Perl for sorting purposes and the rest as strings.  This is seen 
-		when sorting, ie NUMERIC types sort as 1,5,10,40,200, whereas 
-		STRING types sort these as 1,10,200,40,5.  CHAR fields are right-
-		padded with spaces when stored.  LONG/BLOB-type fields are subject to 
-		truncation by the "LongReadLen" attribute value.
+       DATE LONG BLOB MEMO and RAW, there are really only 4 basic datatypes 
+       (NUMBER, CHAR, VARCHAR, and BLOB).  This is because Perl treates 
+       everything as simple strings.  The first 6 are all treated as &quot;numbers&quot; 
+       by Perl for sorting purposes and the rest as strings.  This is seen 
+       when sorting, ie NUMERIC types sort as 1,5,10,40,200, whereas 
+       STRING types sort these as 1,10,200,40,5.  CHAR fields are right-
+       padded with spaces when stored.  LONG-type fields are subject to 
+       truncation by the &quot;LongReadLen&quot; attribute value.  BLOB-type 
+       fields have their data stored on separate files created by Sprite.
 
 	DBD::Sprite works with the tieDBI module, if "Sprite => 1" lines are added 
 	to the "%CAN_BIND" and "%CAN_BINDSELECT" hashes.  This should not be 
 	necessary, and I will investigate when I have time.
 	
 TODO
-    Add "BLOB" datatype that will store it's contents in separate files.
-    (Currently all "BLOB/MEMO" data is stored in the same flatfile as the 
-    rest of the data making for huge (and slow) tables (Hopefully, next 
-    release).
 
+	Additional Oracle-ish functions built-in as requested.
+	
     Joins
         The current version of the module works with single table SELECTs
         only.  This will be a trick, since the underlying statement object
         in JSprite is bound to a single file, I have some ideas and am
         starting to seriously look into this.  Stay tuned!
 
-	Additional Oracle-ish functions as requested.
-	
 	Whatever Mr. Gurdavaram might wish to add.
 	
 KNOWN BUGS
+
     *       The module is using flock() internally. However, this function is
             not available on platforms. Using flock() is disabled on MacOS
             and Windows 95: There's no locking at all (perhaps not so
@@ -523,13 +534,14 @@ KNOWN BUGS
             users anyways).
 
     *       Unique-key violations on updates probably will not be caught 
-	    if the argument is a function-call or a field-name.
+	        if the argument is a function-call or a field-name.
 
-    *	    If fields specified in the "order-by" clause are not also 
-	    fetched, ordering does not work quite right :-(
+    *	      If fields specified in the "order-by" clause are not also 
+            fetched, ordering does not work quite right :-(
 
 AUTHOR AND COPYRIGHT
-    This module is Copyright (C) 2000, 2001 by
+
+    This module is Copyright (C) 2000, 2001, 2002 by
 
         Jim Turner
 
@@ -547,131 +559,7 @@ AUTHOR AND COPYRIGHT
 
 Changes
 
-Revision history for Perl extension DBD::Sprite.
-
-0.01  Fri Feb 25 13:00:55 2000
-	- original version; created by h2xs 1.18
-0.02  Fri Mar 03
-	- Fixed single-quote handling on bound parameters.
-0.07  Fri Apr 14
-	- Refixed test-14 failure (CHAR datatype).  Also create and alter 
-	  table commands should now work properly (save your table 1st! ;)
-0.08  Wed May 03
-	- Fix Windows glob problem for Perl2EXE
-	- Added missing file "OraSpriteFns.pl" to build
-0.09  Fri Jun 09
-	- Fix bug in DELETE which occassionally caused infinite loop.
-0.10  Wed Aug 16
-	- Fix bug involving "like" and field values containing regex-
-	  special characters, ie. ".".
-0.11  Thu Aug 31
-	- Fix regex bug in Sprite.pm and add error-checking for SQL 
-	- commands wo/space after table-name, ie "update table-name\n...".
-0.12  Tue Sep 05
-	- Add size fields are truncated to to "-519" error message.
-0.13  Tue Oct 10
-	- Fix CaseTableNames attribute to "sprite_CaseTableNames.
-	- Minor docs fix.
-0.14  Thu Oct 12
-	- Added Oracle TO_DATE and CONCAT functions.  Fixed bug now 
-	  allowing more than 1 argument for functions, and minor bug 
-	  which stripped wild-card chars from function results in "LIKE" 
-	  expressions.
-0.15  Thu Nov 02
-	- Fix bug that caused question marks in bound parameter values to be 
-	  treated as additional parameters.
-0.16  Thu Dec 21
-	- Fixed bug which would not allow lower-case versions of the "AND" and 
-	  "OR" operators.  Also made field-names used as right-values return 
-	  the appropriate value they represent rather than just a literal 
-	  string of the field name, ie. "update table set FIELD1 = FIELD2" 
-	  should now work properly instead of setting FIELD1 to "FIELD2" in 
-	  every record of "table".
-0.17  Fri Mar 09
-	- Fixed bug where types not returned for cursor after update, 
-	  Fixed bug where table names not returned if space appeared after 
-	  "table_name"?
-	- Fixed bug in "makesdb.pl" -- was encrypting wrong argument.
-0.18  Wed Mar 13
-	- Changed comparisens of literal data with "CHAR" fields to first 
-	  pad the literal with appropriate spaces so that eqality tests would 
-	  pass (to work like Oracle and the way DBIx-Recordset expects).
-	  Also added new option "StrictCharComp" to force the old behavior.
-	- Fixed bug that occasionally inserted a "0" instead of "" in numeric 
-	  fields when inserting NULL.  To get the proper "old" behavior, 
-	  specify a default of zero for each numeric field, ie.
-	  "NUMFIELD=NUMBER=0" in the top line of your Sprite table files.
-	- Added some code to check syntax of "where" clauses. (for DBIx-
-	  Recordset.
-	- Fixed a couple of other small bugs that DBIx-Recordset tests found.
-0.19  Wed Mar 21
-	- Fixed problem seeing all Windows file-names due to case-insensitivity 
-	  in Windows.
-0.20  Fri Aug 15
-	- Fixed bug involving autocommit on statements containing "select" in data. 
-	  Caught by Simon Elliott, Thanks!  Also fixed several other minor glitches.
-	- Fixed bug forbidding sequence files in mixed-case directories unless 
-	  CaseTableNames was set (CaseTableNames only applies to the file-name).
-	  Also added code to display "$@" and "$?" in the error details message on 
-	  -511 errors (could not [over]write file).
-0.21	 Wed Sep 12
-	- Fixed AutoCommit to actually work.  Caught by Jojo Kamote Escubil, Thanks,
-	  Jojo!  Also fixed another bug affecting quoted value strings containing 
-	  question marks (Caught by me!)
-0.22  Mon Sep 17
-	- Removed regex optimization (s///o) which caused record and field separators 
-	  to not work right when one opened a database, closed that database, then 
-	  opened a second database with different record and or field separators.
-	  Caught by Larry Yudelson, Thanks!
-0.25  Fri Oct 26
-    - Added new regex feature to allow one to capture regex matches and update
-      field values, ie:
-           
-    - Added TO_CHAR function for converting Perl "time" values to printable 
-      formats.  Has most date and numeric functions in the two-argument
-      form of the Oracle "TO_CHAR" function, which it is designed to emulate.
-    - Added some optimization for mass-updates.
-    - Added many other new Oracle functions (TO_NUMBER, USER, ABS, COS, EXP, 
-      FLOOR, MOD, POWER, ROUND, SIGN, SIN, TRUNC, CHR, INITCAP, LTRIM, 
-      REPLACE, RTRIM, TRANSLATE, ASCII, LENGTH, SYSDATE.  All should now 
-      work when selected from "DUAL".
-0.26  Mon Oct 29
-    - Fixed bug introduced in 0.24 where tests failed not finding "makesdb.pl".
-    - Fixed test failure on Windows platforms (I think).
-    - Added still more Oraclish functions (CEIL, EXP, INSTR, INSTRB, LAST_DAY,
-      LPAD, NVL, RPAD, LAST_DAY, and SQRT.  Fixed FLOOR.
-    - Added date-handling capability to TRUNC.
-      It should be noted that these functions do almost no error-checking.
-    - Added "AUTONUMBER" datatype to allow autonumbering without sequences.
-      This emulates the way M$-Access(ODBC) does things.
-0.27	 Fri Nov 15
-	- Eliminated "reserved" status of special characters \x02 .. \x06 and \n 
-	  by now using single "reserved" string pattern:  "\x02\^#jSpR1tE\x02", 
-	  where "#" can be any digit 0..9.  The purpose of this is to allow for 
-	  temporarily protecting some strings while performing string searches 
-	  and substitutions, ie. protecting commas within quoted literal values 
-	  while splitting the encompassing string on commas as separators.  \n 
-	  has previously been "flattened" out into spaces in order to treat 
-	  multiline queries as a single line.  This is still done, but numerous 
-	  regices were modified with the "s" option.  Please report anything that 
-	  might be broken by this new release!
-0.30  Thu Jan 10
-	- Fixed bug where specifying a negative number in a "where" clause 
-	  as an unbound constant, returned all records and set the field in all 
-	  records to that number (ouch!)
-	- Fixed bug there double-backslashes in data inserted into a table were 
-	  converted to a single backslash.
-	- Added better "BLOB" support.  BLOB/LONG/MEMO fields no longer have 
-	  default length specified as 5000 and data should no longer be truncated.
-	- ADDED ENCRYPTION OPTION!  If the "Crypt::CBC", and "Crypt::IDEA" or 
-	  "Crypt::DES" are available, you can connect specifying 
-	  "sprite_Crypt => 'IDEA;any_key_string'" (use "DES" in lieu of "IDEA", 
-	  if so inclined).  To read in existing unencrypted tables and write them 
-	  out encrypted, use "sprite_Crypt => 'encrypt=IDEA;your_key_string'".
-	  To read in encrypted databases and write them back unencrypted, use: 
-	  "sprite_Crypt => 'decrypt=IDEA;your_key_string'".  Note:  Any method 
-	  of encryption that Crypt::CBC supports may be used instead of IDEA or 
-	  DES, if you have the module installed.
+	See the "Changes" file for a complete version / change history.
 
 SEE ALSO
 
@@ -679,4 +567,5 @@ SEE ALSO
    
     For general information on DBI see
 
+      http://dbi.perl.org
       http://www.symbolstone.org/technology/perl/DBI

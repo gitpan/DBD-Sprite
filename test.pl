@@ -2,6 +2,8 @@ use lib '.';
 
 require DBI;
 
+$^W = 1;
+
 # Before `make install' is performed this script should be runnable with
 # `make test'. After `make install' it should work as `perl test.pl'
 
@@ -151,14 +153,14 @@ $sth->finish();
 
 $sth = $dbh->prepare(<<END_SQL);
 	update testtable set vcharfield = CONCAT(vcharfield,"(\$1)") 
-	where NUMFIELD =~ /(1)/
+	where NUMFIELD =~ '(\\d+)'
 END_SQL
 $sth ? print "ok 19\n" : print "not ok 19 (".$dbh->errstr.")\n";
 
 # 20: UPDATE VIA PERL WILDCARDS! 
 
 $res = $sth->execute();
-($res == 1) ? print "ok 20\n" : print "not ok 20 ($res != 1)\n";
+($res == 3) ? print "ok 20\n" : print "not ok 20 ($res != 3)\n";
 $sth->finish();
 
 # 21: UPDATE VIA PERL WILDCARDS! 

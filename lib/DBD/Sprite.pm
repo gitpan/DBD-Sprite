@@ -2,6 +2,8 @@ require DBI;
 
 package DBD::Sprite;
 
+#no warnings 'uninitialized';
+
 use strict;
 #use vars qw($VERSION @ISA @EXPORT @EXPORT_OK);
 use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
@@ -15,7 +17,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.30';
+$VERSION = '0.34';
 
 # Preloaded methods go here.
 
@@ -60,9 +62,10 @@ $DBD::Sprite::dr::imp_data_size = 0;
 
 sub connect {
     my($drh, $dbname, $dbuser, $dbpswd, $attr, $old_driver, $connect_meth) = @_;
+#print "-connect: pswd=$dbpswd= attr=$attr=\n";
+#foreach my $xx (keys %$attr) {print "-key=$xx= val=".$attr->{$xx}."=\n";};
     my($port);
     my($cWarn, $i, $j);
-
     # Avoid warnings for undefined values
     $dbuser ||= '';
     $dbpswd ||= '';
@@ -84,15 +87,28 @@ sub connect {
     # and populate internal handle data.
 	if ($this)   #ADDED 20010226 TO FIX BAD ERROR MESSAGE HANDLING IF INVALID UN/PW ENTERED.
 	{
+		my $dbfid = $dbname;
+		$dbfid .= '.sdb'  unless ($dbfid =~ /\.\w+$/);
 		$ENV{SPRITE_HOME} ||= '';
-		unless (open(DBFILE, "<$ENV{SPRITE_HOME}/${dbname}.sdb"))
+		if ($dbfid =~ m#^/#)
 		{
-			unless (open(DBFILE, "<${dbname}.sdb"))
+			unless (open(DBFILE, "<$dbfid"))
 			{
-				unless (open(DBFILE, "<$ENV{HOME}/${dbname}.sdb"))
+				DBI::set_err($drh, -1, "No such database ($dbname)!");
+				return undef;
+			}
+		}
+		else
+		{
+			unless (open(DBFILE, "<$ENV{SPRITE_HOME}/$dbfid"))
+			{
+				unless (open(DBFILE, "<$dbfid"))
 				{
-					DBI::set_err($drh, -1, "No such database ($dbname)!");
-					return undef;
+					unless (open(DBFILE, "<$ENV{HOME}/$dbfid"))
+					{
+						DBI::set_err($drh, -1, "No such database ($dbname)!");
+						return undef;
+					}
 				}
 			}
 		}
@@ -153,10 +169,13 @@ sub connect {
 					$dbinputs[$i] =~ /^(.*)$/;
 					$dbinputs[$i] = $1;
 				}
-				$this->STORE('sprite_dbfdelim', eval("return(\"$dbinputs[3]\");") || '::');
-				$this->STORE('sprite_dbrdelim', eval("return(\"$dbinputs[4]\");") || "\n");
+				$this->STORE('sprite_dbfdelim', $attr->{sprite_read} || $attr->{sprite_field} || eval("return(\"$dbinputs[3]\");") || '::');
+				$this->STORE('sprite_dbwdelim', $attr->{sprite_write} || $attr->{sprite_field} || eval("return(\"$dbinputs[3]\");") || '::');
+				$this->STORE('sprite_dbrdelim', $attr->{sprite_record} || eval("return(\"$dbinputs[4]\");") || "\n");
 				$this->STORE('sprite_attrhref', $attr);
 				$this->STORE('AutoCommit', ($attr->{AutoCommit} || 0));
+
+				$this->STORE('sprite_',($attr->{AutoCommit} || 0));
 
 				#NOTE:  "PrintError" and "AutoCommit" are ON by DEFAULT!
 				#I KNOW OF NO WAY TO DETECT WHETHER AUTOCOMMIT IS SET BY 
@@ -227,12 +246,12 @@ sub DESTROY
 {
     my($drh) = shift;
     
-	if ($drh->FETCH('AutoCommit') == 1)
-	{
-		$drh->STORE('AutoCommit',0);
-		$drh->rollback();                #COMMIT IT IF AUTOCOMMIT ON!
-		$drh->STORE('AutoCommit',1);
-	}
+#	if ($drh->FETCH('AutoCommit') == 1)   #REMOVED 20020225 TO ELIMINATE -w WARNING.
+#	{
+#		$drh->STORE('AutoCommit',0);
+#		$drh->rollback();                #COMMIT IT IF AUTOCOMMIT ON!
+#		$drh->STORE('AutoCommit',1);
+#	}
 	$drh = undef;
 }
 
@@ -321,9 +340,9 @@ sub prepare
 		$csr->STORE('sprite_spritedb', $myspriteref);
 		my ($openhash) = $resptr->FETCH('sprite_SpritesOpen');
 		$openhash->{$spritefid} = \$myspriteref;
-		$myspriteref->set_delimiter("-read",$resptr->FETCH('sprite_dbfdelim'));
-		$myspriteref->set_delimiter("-write",$resptr->FETCH('sprite_dbfdelim'));
-		$myspriteref->set_delimiter("-record",$resptr->FETCH('sprite_dbrdelim'));
+		$myspriteref->set_delimiter("-read",($attribs->{sprite_read} || $attribs->{sprite_field} || $resptr->FETCH('sprite_dbfdelim')));
+		$myspriteref->set_delimiter("-write",($attribs->{sprite_write} || $attribs->{sprite_field} || $resptr->FETCH('sprite_dbwdelim')));
+		$myspriteref->set_delimiter("-record",($attribs->{sprite_record} || $attribs->{sprite_field} || $resptr->FETCH('sprite_dbrdelim')));
 		$myspriteref->set_db_dir($resptr->FETCH('sprite_dbdir'));
 		$myspriteref->set_db_ext($resptr->FETCH('sprite_dbext'));
 		#$myspriteref->set_os("Unix");
@@ -334,10 +353,13 @@ sub prepare
 		#DON'T NEED!#$myspriteref->{Crypt} = $resptr->{sprite_attrhref}->{sprite_Crypt};  #ADDED 20020109.
 		$myspriteref->{sprite_forcereplace} = $resptr->{sprite_attrhref}->{sprite_forcereplace};  #ADDED 20010912.
 		$myspriteref->{dbuser} = $resptr->FETCH('sprite_dbuser');  #ADDED 20011026.
+		$myspriteref->{dbname} = $resptr->FETCH('sprite_dbname');  #ADDED 20011026.
+		$myspriteref->{dbhandle} = $resptr;  #ADDED 20020516
 	}
 	$myspriteref->{LongTruncOk} = $resptr->FETCH('LongTruncOk');
 	my ($silent) = $resptr->FETCH('PrintError');
 	$myspriteref->{silent} = ($silent ? 0 : 1);   #ADDED 20000103 TO SUPPRESS "OOPS" MSG ON WEBSITES!
+	$myspriteref->{sprite_reclimit} = (defined $attribs->{sprite_reclimit}) ? $attribs->{sprite_reclimit} : 0;  #ADDED 20020123.
 
 	#SET UP STMT. PARAMETERS.
 	
@@ -490,7 +512,7 @@ sub type_info_all  #ADDED 20010312, BORROWED FROM "Oracle.pm".
 			[ 'LONG RAW', -4, '2147483647', '\'', '\'', undef, 1, '0', '0',
 			undef, '0', undef, undef, undef, undef
 	],
-			[ 'RAW', -3, 255, '\'', '\'', 'max length', 1, '0', 3,
+			[ 'RAW', -2, 255, '\'', '\'', 'max length', 1, '0', 3,
 			undef, '0', undef, undef, undef, undef
 	],
 			[ 'LONG', -1, '2147483647', '\'', '\'', undef, 1, 1, '0',
@@ -700,9 +722,18 @@ sub execute
 		@{$spriteref->{NAME}} = @l;
 		for my $i (0..$#l)
 		{
-			${$spriteref->{TYPE}}[$i] = $typehash{${$spriteref->{types}}{$l[$i]}};
-			${$spriteref->{PRECISION}}[$i] = ${$spriteref->{lengths}}{$l[$i]};
-			${$spriteref->{SCALE}}[$i] = ${$spriteref->{scales}}{$l[$i]};
+			if (defined ${$spriteref->{types}}{$l[$i]})
+			{
+				${$spriteref->{TYPE}}[$i] = $typehash{${$spriteref->{types}}{$l[$i]}};
+				${$spriteref->{PRECISION}}[$i] = ${$spriteref->{lengths}}{$l[$i]};
+				${$spriteref->{SCALE}}[$i] = ${$spriteref->{scales}}{$l[$i]};
+			}
+			else
+			{
+				${$spriteref->{TYPE}}[$i] = '';
+				${$spriteref->{PRECISION}}[$i] = 0;
+				${$spriteref->{SCALE}}[$i] = 0;
+			}
 			${$spriteref->{NULLABLE}}[$i] = 1;
 		}
 	}
