@@ -1,5 +1,6 @@
 use lib '.';
 
+#BEGIN { $ENV{DBI_PUREPERL} = 2 };
 require DBI;
 
 $^W = 1;
@@ -52,6 +53,7 @@ print "ok 4\n"  if ($dbh);
 
 $dbh->{PrintError} = 0;          #DON'T COMPLAIN THAT IT'S NOT THERE!
 $res = $dbh->do('drop table testtable');
+
 $dbh->{PrintError} = 1;
 $res = $dbh->do(<<END_SQL);
 	create table testtable (

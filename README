@@ -27,9 +27,9 @@ DESCRIPTION
 	6) It is not necessary to call the "$dbh->quote()" method all the time 
 	in your sql.
 	7) NULL is handled as an empty string.
-	8) Oracle Sequences are supported!
+	8) Oracle(tm) Sequences are supported!
 	9) Numeric, Char(#), Varchar(#), and Long/Blob datatypes are supported 
-	and completely sortable!
+	and (except Blobs) are completely sortable!
 	10) Autonumbering (without sequences) is now also supported!
 	11) Your choice of Encryption is now supported
   
@@ -404,6 +404,15 @@ Metadata
         (NEW!) Set to special string 'XML' to store tables in XML format!
         Great for converting existing (non-binary) tables to XML format.
                 
+    sprite_xsl  (NEW)
+        Allows specifying of a url to an xsl template to be written to xml 
+        documents (when using the "xml" option).  This makes it very easy to 
+        view your tables via M$ Internet Explorer browser!
+
+        Example:  sprite_xsl => 'http://turnerville.wwol.com/jim/spritexml2html.xsl'
+        
+        Default is none.  Only applies if "sprite_field" is set to "xml"!
+
     sprite_dbfdelim - DEPRECIATED, now use "sprite_field"!
         Field delimiter string in use for the database.
                 
@@ -411,12 +420,18 @@ Metadata
         Record delimiter string in use for the database.
                 
     sprite_CaseTableNames
-        By default, table names are case-insensitive (as they are in Oracle),
+        By default, table names are case-insensitive (as they are in Oracle(tm)),
         to make table names case-sensitive (as in MySql), so that one could
         have two separate tables such as "test" and "TEST", set this option
         to 1.  (read-only after "connect")
 
-	sprite_Crypt  (NEW)
+    sprite_CaseFieldNames  (NEW)
+        By default, field names are case-insensitive (as they are in Oracle(tm)),
+        to make field names case-sensitive, so that one could have two 
+        separate fields such as "test" and "TEST" in the same table, set 
+        this option to 1.  (read-only after "connect")
+
+	sprite_Crypt
 		"0" by defalt.  Specifies that encryption is to be used when storing 
 		the data in the flat-file.  To use, download "Crypt::CBC", and one 
 		or more of "Crypt::DES", "Crypt::IDEA", or "Crypt::Blowfish".  You 
@@ -435,7 +450,7 @@ Metadata
 				This allows one to fetch an encrypted table and write it back 
 				out unencrypted.
 
-	sprite_reclimit  (NEW)
+	sprite_reclimit
 		 Allows user to specify the maximum number of records to be returned 
 		 by a single query.  Default is "0", which permits an unlimited number.
 
@@ -443,7 +458,7 @@ Metadata
         CHAR fields are always right-padded with spaces to fill out
         the field.  Old (pre 5.17) Sprite behaviour was to require the
         padding be included in literals used for testing equality in
-        "where" clauses.    I discovered that Oracle and some other databases
+        "where" clauses.    I discovered that Oracle(tm) and some other databases
         do not require this when testing DBIx-Recordset, so Sprite will
         automatically right-pad literals when testing for equality.
         To disable this and force the old behavior, set this option to 1.
@@ -536,8 +551,6 @@ KNOWN BUGS
     *       Unique-key violations on updates probably will not be caught 
 	        if the argument is a function-call or a field-name.
 
-    *	      If fields specified in the "order-by" clause are not also 
-            fetched, ordering does not work quite right :-(
 
 AUTHOR AND COPYRIGHT
 

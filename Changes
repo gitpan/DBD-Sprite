@@ -190,3 +190,39 @@ Revision history for Perl extension DBD::Sprite.
 	- Restored the "sprite_sizelimit" attribute (alias for the "sprite_reclimit" 
 	  attribute) for backward compatability sake (I once used this in another 
 	  program and DBD::LDAP uses "ldap_sizelimit" - I can't remember why).
+0.36  Thu Jun 6
+	- Removed -402 warning if SELECT finds no records so Sprite will work like 
+	  other DBI databases.  To test if SELECT returned records or not, test the 
+	  return value of $sth->execute().  It will be the number of records 
+	  returned or "0E0" if none, or undef if error!
+	- Initialize "LongReadLen" attribute because regular DBI returns a default 
+	  value of 80, but DBI::PurePerl returns undef (caused Perl warning in test).
+	- Dropping table now returns "0E0" on success instead of 1 (as DBD::Oracle 
+	  does).
+0.37  Tue Jun 11
+	- Fixed bug which prevented Sprite from loading tables with zero or one 
+	  records.
+	- Added new option:  "sprite_xsl" to allow one to specify an xsl template 
+ 	  url to be written into the xml document containing each table.  Default 
+ 	  is none.  Only applies when using the "xml" option!
+0.38  Never released.
+	- Added "rows" attribute to "select" tag in XML-formatted tables.
+0.39  Mon Jun 24
+	- Added "rows" attribute to "select" tag in XML-formatted tables.
+	- Added option "sprite_CaseFieldNames".  Default is zero.  If set, causes 
+	  field names to be case-sensitive, allowing same table to have multiple 
+	  fields with same name and different cases, ie. "field1", and "FIELD1". 
+	  Traditional behavior was to convert all field names to upper-case as 
+	  does Oracle(tm).  This is similar to the "sprite_CaseTableNames" option 
+	  for table names.
+0.40	 Tue Jul 9
+	- Fixed restriction which prevented one from sorting on fields not in the 
+	  selected result-set.
+	- Added multiple ascending/descending selection to the sort "order by" 
+	  clause.  Previously, one could only specify ascending/descending once 
+	  after the last field and all sorts would be in that direction.  Now, one 
+	  can use things like:  "order by field1 desc, field2 asc, field3 desc"
+	  Please note that previous queries like "order by field1, field2 desc" 
+	  WERE broken since both would sort in descending order!  Now it works like 
+	  Oracle where field1 will sort ascending and within that, field2 sorts 
+	  descending.

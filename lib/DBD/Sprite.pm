@@ -17,7 +17,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.35';
+$VERSION = '0.40';
 
 # Preloaded methods go here.
 
@@ -349,6 +349,7 @@ sub prepare
 		#$myspriteref->{CaseTableNames} = $resptr->{sprite_attrhref}->{CaseTableNames};
 		#ABOVE CHANGED TO BELOW(1 LINE) 20001010!
 		$myspriteref->{CaseTableNames} = $resptr->{sprite_attrhref}->{sprite_CaseTableNames};
+		$myspriteref->{sprite_CaseFieldNames} = $resptr->{sprite_attrhref}->{sprite_CaseFieldNames};
 		$myspriteref->{StrictCharComp} = $resptr->{sprite_attrhref}->{sprite_StrictCharComp};
 		#DON'T NEED!#$myspriteref->{Crypt} = $resptr->{sprite_attrhref}->{sprite_Crypt};  #ADDED 20020109.
 		$myspriteref->{sprite_forcereplace} = $resptr->{sprite_attrhref}->{sprite_forcereplace};  #ADDED 20010912.
@@ -688,16 +689,21 @@ sub execute
 	}
 	else                     #SELECT SELECTED ZERO RECORDS.
 	{
-		$resv[0] = $spriteref->{lastmsg};
-		DBI::set_err($sth, ($spriteref->{lasterror} || -402), 
-				($spriteref->{lastmsg} || 'No matching records found/modified!'));
-		#$retval = 'OK';
+#		$resv[0] = $spriteref->{lastmsg};  #NEXT 3 CHGD. TO FOLLOWING 6 20020606.
+#		DBI::set_err($sth, ($spriteref->{lasterror} || -402), 
+#				($spriteref->{lastmsg} || 'No matching records found/modified!'));
+		if ($spriteref->{lasterror})
+		{
+			DBI::set_err($sth, $spriteref->{lasterror}, $spriteref->{lastmsg});
+			$retval = undef;
+		}
 		$retval = '0E0';
 	}
 	
 	#EVERYTHING WORKED, SO SAVE SPRITE RESULT (# ROWS) AND FETCH FIELD INFO.
 
-	 if ($retval)
+	 #if ($retval)   #CHGD TO NEXT 20020606.
+	 if (defined($retval) && $retval)
 	 {
 		$sth->{'driver_rows'} = $retval; # number of rows
 		$sth->{'sprite_rows'} = $retval; # number of rows
@@ -750,8 +756,10 @@ sub execute
 	$sth->{'SCALE'} = \@{$spriteref->{SCALE}};
 	$sth->{'NULLABLE'} = \@{$spriteref->{NULLABLE}};
     $sth->STORE('sprite_resv',\@resv);
-    return $retval  if ($retval);
-    return '0E0'  if (defined $retval);
+	 if (defined $retval)
+	 {
+	    return $retval ? $retval : '0E0';
+	 }
     return undef;
 }
 
@@ -762,7 +770,8 @@ sub fetchrow_arrayref
 	my $row = shift @$data;
 
 	return undef  if (!$row);
-	my ($longreadlen) = $sth->{Database}->FETCH('LongReadLen');
+	#my ($longreadlen) = $sth->{Database}->FETCH('LongReadLen');  #CHGD. TO NEXT 20020606 AS WORKAROUND FOR DBI::PurePerl;
+	my ($longreadlen) = $sth->{Database}->FETCH('LongReadLen') || 0;
 	if ($longreadlen > 0)
 	{
 		if ($sth->FETCH('ChopBlanks'))
@@ -1270,6 +1279,12 @@ I<Return Value>
 		By default, table names are case-insensitive (as they are in Oracle), 
 		to make table names case-sensitive (as in MySql), so that one could 
 		have two separate tables such as "test" and "TEST", set this option 
+		to 1.
+
+	sprite_CaseFieldNames
+		By default, field names are case-insensitive (as they are in Oracle), 
+		to make field names case-sensitive, so that one could 
+		have two separate fields such as "test" and "TEST", set this option 
 		to 1.
 
 	sprite_StrictCharComp  (NEW!)

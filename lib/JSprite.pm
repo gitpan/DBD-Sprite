@@ -464,7 +464,7 @@ eval {require 'OraSpriteFns.pl';};
 use vars qw ($VERSION $LOCK_SH $LOCK_EX);
 ##--
 
-$JSprite::VERSION = '5.35';
+$JSprite::VERSION = '5.40';
 $JSprite::LOCK_SH = 1;
 $JSprite::LOCK_EX = 2;
 
@@ -536,7 +536,9 @@ sub new
 		sprite_sizelimit => 0, #JWT: 20010123: SAME AS RECLIMIT, NEEDED BOR BACKWARD COMPAT.
 		dbuser			=> '',      #JWT: 20011026: SAVE USER'S NAME.
 		dbname			=> '',      #JWT: 20020515: SAVE DATABASE NAME.
-		CBC			=> 0        #JWT: 20020529: SAVE Crypt::CBC object, if encrypting!
+		CBC			=> 0,       #JWT: 20020529: SAVE Crypt::CBC object, if encrypting!
+		sprite_xsl	=> '',      #JWT: 20020611: OPTIONAL XSL TEMPLATE FILE.
+		sprite_CaseFieldNames => 0,  #JWT: 20020618: FIELD-NAME CASE-SENSITIVITY?
 	    };
 
     $self->{separator} = { Unix  => '/',    Mac => ':',   #JWT: BUGFIX.
@@ -1115,7 +1117,9 @@ while (1)
     $query =~ s%\b($column\s*(?:\(.*?\))?)\s*($numops)\s*((?:[\+\-]?[0..9+-\.Ee]+|$column)\s*(?:\(.*?\))?)%
 		my ($one,$two,$three) = ($1,$2,$3);
 		$one =~ s/\s+$//;
-		if ($one =~ /NUM\s*\(/ || ${$self->{types}}{"\U$one\E"} =~ /$NUMERICTYPES/i)
+		my $ONE = $one;
+		$ONE =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
+		if ($one =~ /NUM\s*\(/ || ${$self->{types}}{$ONE} =~ /$NUMERICTYPES/i)
 		{
 			$two =~ s/^($strops)$/$stropmap{$two}/s;
 			"$one $two $three";
@@ -1133,8 +1137,10 @@ while (1)
 	$query =~ s!\b($colmlist)\s*($strops)\s*(\*\d+)!
 		my ($one,$two,$three) = ($1,$2,$3);
 		$one =~ s/\s+$//;
+		my $ONE = $one;
+		$ONE =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
 		my $res;
-		if ($one =~ /NUM\s*\(/ || ${$self->{types}}{"\U$one\E"} =~ /$NUMERICTYPES/is)
+		if ($one =~ /NUM\s*\(/ || ${$self->{types}}{$ONE} =~ /$NUMERICTYPES/is)
 		{
 			my ($opno) = undef;    #NEXT 18 LINES ADDED 20010313 TO CAUSE STRING COMPARISENS W/NUMERIC FIELDS TO RETURN ZERO, SINCE PERL NON-NUMERIC STRINGS RETURN ZERO.
 			if ($three =~ /^\*\d+/s)
@@ -1160,7 +1166,7 @@ while (1)
 				$res = "$one $two $three";
 			}
 		}
-		elsif ($self->{StrictCharComp} == 0 && ${$self->{types}}{"\U$one\E"} eq 'CHAR')
+		elsif ($self->{StrictCharComp} == 0 && ${$self->{types}}{$ONE} eq 'CHAR')
 		{
 			my ($opno) = undef;    #NEXT 18 LINES ADDED 20010313 TO CAUSE STRING COMPARISENS W/NUMERIC FIELDS TO RETURN ZERO, SINCE PERL NON-NUMERIC STRINGS RETURN ZERO.
 			if ($three =~ /^\*\d+/)
@@ -1170,7 +1176,7 @@ while (1)
 				$opstr =~ s/^\'//s;
 				$opstr =~ s/\'$//s;
 				$strings[$opno] = "'" . sprintf(
-							'%-'.${$self->{lengths}}{"\U$one\E"}.'s',
+							'%-'.${$self->{lengths}}{$ONE}.'s',
 							$opstr) . "'";
 			}
 			$res = "$one $two $three";
@@ -1186,7 +1192,7 @@ while (1)
 	#20000224 ADDED "\b" AFTER "$special)" 5 LINES BELOW!
 	$query =~ s!\b(($colmlist))\b!
                    my $match = $1;
-						$match =~ tr/a-z/A-Z/;
+						$match =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
                    ($match =~ /\b(?:$special)\b/ios) ? "\L$match\E"    : 
                                                     "\$_->{$match}"
                !geis;
@@ -1232,9 +1238,12 @@ sub check_columns
     my ($status, @columns, $column);
 
     $status  = 1;
-$column =~ tr/a-z/A-Z/  if (defined $column);   #JWT
-$column_string =~ tr/a-z/A-Z/;   #JWT
-$self->{use_fields} = $column_string;    #JWT
+	unless ($self->{sprite_CaseFieldNames})
+	{
+		$column =~ tr/a-z/A-Z/  if (defined $column);   #JWT
+		$column_string =~ tr/a-z/A-Z/;   #JWT
+	}
+	$self->{use_fields} = $column_string;    #JWT
     @columns = split (/,/, $column_string);
 
     foreach $column (@columns) {
@@ -1255,6 +1264,8 @@ sub parse_columns
 			$ordercols, $descorder, $fields, $distinct) = @_;
     my ($i, $j, $k, $rowcnt, $status, @columns, $single, $loop, $code, $column);
 	my (%colorder, $rawvalue);
+	my (@result_index);   #ADDED 20020709 TO SUPPORT SORTING ON COLUMNS NOT IN RESULT-SET.
+
 	my ($psuedocols) = "CURVAL|NEXTVAL";   #ADDED 20011019.
 	local $results = undef;
 	my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
@@ -1296,17 +1307,8 @@ sub parse_columns
 	$rowcnt = 0;
 
 	my (@these_results);
-#	$fieldregex = $self->{fieldregex};
 	my ($skipreformat) = 0;
 	my ($colskipreformat) = 0;
-#	foreach my $i (@columns)
-#	{
-#		if (${$self->{types}}{$i} =~ /AUTO/)
-#		{
-#			$errdetails = $i;
-#			return (-525);
-#		}
-#	}
 	my (@types);
 	my (@coltypes);
 	@coltypes = ();
@@ -1393,6 +1395,7 @@ sub parse_columns
 						push (@these_results, $rawvalue);
 					}
 					push (@$results, [ @these_results ]);
+					push (@result_index, $loop);   #ADDED 20020709 TO SUPPORT SORTING ON COLUMNS NOT IN RESULT-SET.
 				}
 				else   #I THINK THIS IS DEAD CODE!!!
 				{
@@ -1460,16 +1463,33 @@ NOMATCHED1:
 				$colskipreformat = 0  if ($rawvalue =~ s/\$(\d)/$perlmatches[$1-1]/g);
 				if ($valuenames{$jj} =~ /^[_a-zA-Z]/)  #NEXT 5 LINES ADDED 20000516 SO FUNCTIONS WILL WORK IN UPDATES!
 				{
-					unless ($self->{fields}->{"\U$valuenames{$jj}\E"})  #ADDED TEST 20001218 TO ALLOW FIELD-NAMES AS RIGHT-VALUES.
+					if ($self->{sprite_CaseFieldNames})
 					{
-						#$rawvalue = &chkcolumnparms($self, $valuenames{$jj}); #CHGD. TO NEXT 20011018.
-						$rawvalue = &chkcolumnparms($self, $rawvalue);
-						$rawvalue = eval $rawvalue;   #FUNCTION EVAL 3
-						return (-517)  if ($@);
+						unless ($self->{fields}->{"$valuenames{$jj}"})  #ADDED TEST 20001218 TO ALLOW FIELD-NAMES AS RIGHT-VALUES.
+						{
+							#$rawvalue = &chkcolumnparms($self, $valuenames{$jj}); #CHGD. TO NEXT 20011018.
+							$rawvalue = &chkcolumnparms($self, $rawvalue);
+							$rawvalue = eval $rawvalue;   #FUNCTION EVAL 3
+							return (-517)  if ($@);
+						}
+						else
+						{
+							$rawvalue = $_->{$valuenames{$jj}};
+						}
 					}
 					else
 					{
-						$rawvalue = $_->{$valuenames{$jj}};
+						unless ($self->{fields}->{"\U$valuenames{$jj}\E"})  #ADDED TEST 20001218 TO ALLOW FIELD-NAMES AS RIGHT-VALUES.
+						{
+							#$rawvalue = &chkcolumnparms($self, $valuenames{$jj}); #CHGD. TO NEXT 20011018.
+							$rawvalue = &chkcolumnparms($self, $rawvalue);
+							$rawvalue = eval $rawvalue;   #FUNCTION EVAL 3
+							return (-517)  if ($@);
+						}
+						else
+						{
+							$rawvalue = $_->{$valuenames{$jj}};
+						}
 					}
 					$colskipreformat = 0;
 				}
@@ -1596,73 +1616,112 @@ NOMATCHED1:
 				push (@$results, [split(/\x02\^2jSpR1tE\x02/, $i)]);
 			}
 		}
-		if (@$ordercols)
+#$| = 1;
+#print "-ordercols=".join('|',@$ordercols)."= order=".join('|',@{$self->{order}})."= columns=".join('|',@columns)."=\n";
+		if (@$ordercols)   #COMPLETELY OVERHAULED 20020708 TO SUPPORT MULTIPLE ASCENDING/DESCENDING DECISIONS & SORTING ON COLUMNS NOT IN RESULT-SET!
 		{
+			@$ordercols = reverse(@$ordercols);
+			@$descorder = reverse(@$descorder);
 			$rowcnt = 0;
-			my ($mysep) = "\x02\^2jSpR1tE\x02";
-			$mysep = "\xFF"  if ($descorder);
+			#my ($mysep) = "\x02\^2jSpR1tE\x02";
+			#$mysep = "\xFF"  if ($descorder);
+#my @mysep = ("^", "V");
+			my @mysep = ("\x00", "\xff");
 			my @SA = ();
+			my @SSA = ();
+			my @SI = ();
 			my @l;
-			$i = 0;
-			#for (0..$#{$self->{order}})
 			for (0..$#columns)
 			{
-				#$colorder{${$self->{order}}[$_]} = $_;
 				$colorder{$columns[$_]} = $_;
 			}
-			for (0..$#$results)
+			for (my $i=0;$i<=$#$results;$i++)
 			{
-	    			next unless (defined $self->{records}->[$_]);
-
-				#$SA[$i] = ' ' x (40x($#$ordercols+1));
-				#$i = 0;
-				foreach $j (@$ordercols)
+				push (@SI, $i);
+				push (@SSA, $i);
+			}
+			my $jcnt = 0;
+			my $do = ($descorder->[0] =~ /de/i) ? 1 : 0;
+			my $fieldval;
+			foreach my $j (@$ordercols)
+			{
+#print "-jcnt =$jcnt= j=$j= do($jcnt)=$descorder->[$jcnt]=\n";
+				$j =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
+				$k = $colorder{$j} || -1;
+				for (my $i=0;$i<=$#$results;$i++)
 				{
-					$j =~ tr/a-z/A-Z/;
-					$k = $colorder{$j};
+					$fieldval = ($k >= 0) ?
+							${$results}[$SI[$i]]->[$k] 
+							: $self->{records}->[$result_index[$SI[$i]]]->{$j};
+#print "-BEF: R($i)=${$results}[$SI[$i]]->[$k]= SI($i)=$SI[$i]=!!!!!!!!!!\n";
+#print "---i=$i= j=$j= tp=${$self->{types}}{$j}= do=$do= SIcnt=$#SI= SAcnt=$#SA= SI=$SI[$i]=\n";
+#print "-i=$i= K=$k= j=$j= RES=${$results}[$SI[$i]]->[$k]= REC($result_index[$SI[$i]])=$self->{records}->[$result_index[$SI[$i]]]->{$j}=\n";
 					if (${$self->{types}}{$j} eq 'FLOAT' || ${$self->{types}}{$j} eq 'DOUBLE')
 					{
-						#$SA[$i] .= sprintf('%'.${$self->{lengths}}{$j}.'s',$self->{records}->[$_]->{$j});
-						$SA[$i] .= sprintf('%'.${$self->{lengths}}{$j}.${$self->{scales}}{$j}.'e',${$results}[$_]->[$k]);
-						#$SA[$i] .= $self->{records}->[$_]->{$j} . $mysep;
+						push (@SA, (sprintf('%'.${$self->{lengths}}{$j}.${$self->{scales}}{$j}.'e',$fieldval) . $mysep[$do] . $SSA[$i]));
 					}
-					#elsif (${$self->{types}}{$j} =~ /$NUMERICTYPES/)  #CHGD TO NEXT LINE 20010313.
-					elsif (length (${$results}[$_]->[$k]) > 0 && ${$self->{types}}{$j} =~ /$NUMERICTYPES/)
+					elsif (length ($fieldval) > 0 && ${$self->{types}}{$j} =~ /$NUMERICTYPES/)
 					{
-						#$SA[$i] .= sprintf('%'.${$self->{lengths}}{$j}.'s',$self->{records}->[$_]->{$j});
-						$SA[$i] .= sprintf('%'.${$self->{lengths}}{$j}.${$self->{scales}}{$j}.'f',${$results}[$_]->[$k]);
-						#$SA[$i] .= $self->{records}->[$_]->{$j} . $mysep;
+						push (@SA, (sprintf('%'.${$self->{lengths}}{$j}.${$self->{scales}}{$j}.'f',$fieldval) . $mysep[$do] . $SSA[$i]));
 					}
 					else
 					{
-						$SA[$i] .= ${$results}[$_]->[$k] . $mysep;
+#print "-???- i=$i= RC=$#$results= SI=$SI[$i]= res1=${$results}[$i]->[$k]= res2=$fieldval=\n";
+						push (@SA, ($fieldval . $mysep[$do] . $SSA[$i]));
 					}
-					++$k;
 				}
-				$SA[$i] .= '|' . $_;  #NOTE: "|" DOES *NOT* NEED TO BE PROTECTED!
-				++$i;                 #(ONLY THE *LAST* VALUE OF THE SPLIT IS USED).
+				@SI = ();
+				@SSA = ();
+#print "-DUR: S=".join("\n", @SA)."=\n";
+				@SI = sort {$a cmp $b} @SA;
+				@SI = reverse(@SI)  if ($do);
+#print "-AFT SORT: S=".join("\n", @SSA)."=  DO=$do=\n";
+				@SA = ();
+				my $ii = $#SI;
+				my $l = length($ii);
+				if ($jcnt < $#$ordercols)
+				{
+					$do = ($descorder->[++$jcnt] =~ /de/i) ? 1 : 0;
+					if ($do)
+					{
+						for (my $i=0;$i<=$#SI;$i++)
+						{
+#print "---DES bef: si($i) =$SI[$i]= SEP=$mysep[$do]=\n";
+							$SI[$i] =~ /(\d+)$/;
+							$SI[$i] = $1;
+							push (@SSA, sprintf("%${l}d",$ii--) . $mysep[$do] . $SI[$i]);
+#print "---DES aft: si($i) =$SI[$i]=\n";
+						}
+					}
+					else
+					{
+						for (my $i=0;$i<=$#SI;$i++)
+						{
+#print "---ASC bef: si($i) =$SI[$i]= SEP=$mysep[$do]=\n";
+							$SI[$i] =~ /(\d+)$/;
+							$SI[$i] = $1;
+							push (@SSA, sprintf("%${l}d",$i) . $mysep[$do] . $SI[$i]);
+#print "---ASC aft: si($i) =$SI[$i]=\n";
+						}
+					}
+				}
 			}
-			my @SSA = sort {$a cmp $b} @SA;  #SORT 'EM!
-			@SSA = reverse(@SSA)  if ($descorder);
-			@SA = ();
-			for (0..$#SSA)
+			@SA = @$results;
+			@$results = ();
+			for (my $i=0;$i<=$#SI;$i++)
 			{
-				#$SA[$_] = substr($SSA[$_],(40*($#$ordercols+1)));
-				@l = split(/\|/, $SSA[$_]);
-				$SA[$_] = $l[$#l];
-				++$rowcnt;
+#print "-BEF: si($i)=$SI[$i]=\n";
+				$SI[$i] =~ /(\d+)$/;
+				$SI[$i] = $1;
+#print "-AFT: si($i)=$SI[$i]=\n";
+#print "---SI($i)=$SI[$i]= RES=".join('|',@{$SA[$SI[$i]]})."=\n";
+				push (@$results, $SA[$SI[$i]]);
 			}
-			@SSA = @$results;
-			$i = $$results[0];
-			for (0..$#SA)
-			{
-				$$results[$_] = $SSA[$SA[$_]];
-			}
-			##???@$results = ($i,@$results);
 		}
-		unshift (@$results, $rowcnt);
-		return $results;
+		$rowcnt = $#$results + 1;
     }
+	unshift (@$results, $rowcnt);
+	return $results;
 }
 
 sub check_for_reload
@@ -1771,7 +1830,7 @@ sub select
 {
     my ($self, $query) = @_;
     my ($i, @l, $regex, $path, $columns, $table, $extra, $condition, 
-			$values_or_error, $descorder);
+			$values_or_error, $descorder, @descorder);
 	my (@ordercols) = ();
     $regex = $self->{_select};
     $path  = $self->{path};
@@ -1802,16 +1861,7 @@ sub select
 					unless ($full_path !~ /\S/ 
 					|| $full_path =~ m#$self->{separator}->{ $self->{platform} }$#);
 			my ($cmd);
-			#$cmd = "/bin/ls $full_path*"; #NEXT 8 REPLACED W/NEXT 18 20000414 FOR OS-INDEPENDENCE.
-			#$cmd = "dir $full_path*"  if ($self->{platform} eq 'PC');
-			#$cmd .= $self->{ext};
-			#@l = `$cmd`;
-			#for (my $i=0;$i<=$#l;$i++)
-			#{
-			#	chomp $l[$i];
-			#}
 			$cmd = $full_path . '*' . $self->{ext};
-			#my $code = "while (my \$i = <$cmd>)\n";
 			my ($code);
 			if ($^O =~ /Win/i)  #NEEDED TO MAKE PERL2EXE'S "-GUI" VERSION WORK!
 			{
@@ -1915,10 +1965,20 @@ END_CODE
 			#NOW CONVERT THE REMAINING COLUMN NAMES TO "$$_{COLUMN_NAME}"!
 
 			#$fields[$i] =~ s/($column_list)/  #ADDED WORD-BOUNDARIES 20011129 TO FIX BUG WHERE ONE COLUMN NAME CONTAINED ANOTHER ONE, IE. "EMPL" AND "EMPLID".
-			$fields[$i] =~ s/\b($column_list)\b/
-					my ($column_name) = $1;
-					$columns .= $column_name . ',';
-					"\$\$\_\{\U$column_name\E\}"/ieg;
+			if ($self->{sprite_CaseFieldNames})
+			{
+				$fields[$i] =~ s/\b($column_list)\b/
+						my ($column_name) = $1;
+						$columns .= $column_name . ',';
+						"\$\$\_\{$column_name\}"/ieg;
+			}
+			else
+			{
+				$fields[$i] =~ s/\b($column_list)\b/
+						my ($column_name) = $1;
+						$columns .= $column_name . ',';
+						"\$\$\_\{\U$column_name\E\}"/ieg;
+			}
 			$fields[$i] =~ s/\x02\^2jSpR1tE\x02(\d+)\x02\^2jSpR1tE\x02/$strings[$1]/g; #UNPROTECT LITERALS!
 		}
 		chop ($columns);
@@ -1931,7 +1991,14 @@ END_CODE
 			my $orderclause = $2;
 			@ordercols = split(/,/,$orderclause);
 			#$descorder = ($ordercols[$#ordercols] =~ s/(\w+\W+)desc$/$1/i);
-			$descorder = ($ordercols[$#ordercols] =~ s/(\w+\W+)desc$/$1/is); #20011129
+			#$descorder = ($ordercols[$#ordercols] =~ s/(\w+\W+)desc$/$1/is); #20011129
+			for (my $i=0;$i<=$#ordercols;$i++)
+			{
+				$descorder = 'asc';
+				$descorder = $2  if ($ordercols[$i] =~ s/(\w+)\W+(asc|desc|ascending|descending)$/$1/is); #20020708
+				push (@descorder, $descorder);  #20020708
+#print "<BR>lastoc=$ordercols[$i]= desc=$descorder=\n";
+			}
 			#$orderclause =~ s/,\s+/,/g;
 			for $i (0..$#ordercols)
 			{
@@ -1948,12 +2015,22 @@ END_CODE
 		{
 			@fields = @{ $self->{order} };
 			$columns = join (',', @fields);
-			for (my $i=0;$i<=$#fields;$i++)
+			if ($self->{sprite_CaseFieldNames})
 			{
-				$fields[$i] =~ s/([^\,]+)/\$\$\_\{\U$1\E\}/g;
+				for (my $i=0;$i<=$#fields;$i++)
+				{
+					$fields[$i] =~ s/([^\,]+)/\$\$\_\{$1\}/g;
+				}
+			}
+			else
+			{
+				for (my $i=0;$i<=$#fields;$i++)
+				{
+					$fields[$i] =~ s/([^\,]+)/\$\$\_\{\U$1\E\}/g;
+				}
 			}
 		}
-		$columns =~ tr/a-z/A-Z/;
+		$columns =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
 		$self->check_columns ($columns) || return (-502);
 		#$self->{use_fields} = join (',', @{ $self->{order} }[0..$#fields] ) 
 		if ($#fields >= 0)
@@ -1968,7 +2045,7 @@ END_CODE
 			$self->{use_fields} = join(',', @fieldnames);
 		}
 		$values_or_error = $self->parse_columns ('select', $columns, 
-				$condition, '', \@ordercols, $descorder, \@fields, $distinct);    #JWT
+				$condition, '', \@ordercols, \@descorder, \@fields, $distinct);    #JWT
 		return $values_or_error;
     } 
     else     #INVALID SELECT STATEMENT!
@@ -2074,7 +2151,7 @@ sub update
 			my ($var) = $1;
 			my ($val) = $2;
 
-			$var =~ tr/a-z/A-Z/;
+			$var =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
 			$columns .= $var . ',';   #ADDED 20010228.
 			$val =~ s|%\0(\d+): |pack("C",$1)|ge;
 			$all_columns->{$var} = $val;
@@ -2085,7 +2162,7 @@ sub update
 		!es;
 	}
 	#$columns   = join (',', keys %$all_columns);  #NEXT 2 CHGD TO 3RD LINE 20010228.
-	#$columns =~ tr/a-z/A-Z/;   #JWT
+	#$columns =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});   #JWT
 	chop($columns);   #ADDED 20010228.
 	#$condition = ($extra =~ /^\s*where\s+(.+)$/is) ? $1 : '';
 
@@ -2153,8 +2230,9 @@ sub drop
 		my $cfr = $self->check_for_reload($table) || -501;
 		return $cfr  if ($cfr < 0);
 
-		return (unlink $self->{file} || -501);
-		return 
+#		return (unlink $self->{file} || -501);  #NEXT 2 CHGD. TO FOLLOWING 20020606.
+#		return 
+		return (unlink $self->{file}) ? '0E0' : -501;
 	}
 	$errdetails = $query;
 	return (-501);
@@ -2226,7 +2304,7 @@ sub create
 	if ($query =~ /^create\s+table\s+($self->{path})\s*\((.+)\)\s*$/is)
 	{
 		my ($table, $extra) = ($1, $2);
-	    $query =~ tr/a-z/A-Z/s;  #ADDED 20000225;
+	    $query =~ tr/a-z/A-Z/s  unless ($self->{sprite_CaseFieldNames});  #ADDED 20000225;
 	    #$extra =~ tr/a-z/A-Z/;  #ADDED 20000225;
 		$extra =~ s/^\s*//s;
 		$extra =~ s/\s*$//s;
@@ -2251,7 +2329,7 @@ sub create
 			{
 				my $keyfields = $1;
 				$keyfields =~ s/\s+//g;
-				$keyfields =~ tr/a-z/A-Z/;
+				$keyfields =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
 				@keyfields = split(/\x02\^2jSpR1tE\x02/,$keyfields);
 			}
 		}
@@ -2266,7 +2344,7 @@ sub create
 				push (@values, $value);
 				"=<3>"/ieg;
 			$i =~ s/\s+/=/;
-			$i =~ tr/a-z/A-Z/;
+			$i =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
 			$fieldname = $i;
 			$fieldname =~ s/=.*//;
 			my ($tp,$len,$scale);
@@ -2368,7 +2446,7 @@ sub create
 			$fields .= $self->{_write};
 		}
 		$fields =~ s|\x02\^2jSpR1tE\x02|\,|g;
-		#$fields =~ tr/a-z/A-Z/;
+		#$fields =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
 		my $new_file = $self->get_path_info ($table);
 		my ($new_filename) = $new_file;  #ADDED 20000225;
 		$new_file .= $self->{ext}  if ($self->{ext});  #JWT:ADD FILE EXTENSIONS.
@@ -2474,7 +2552,7 @@ sub alter
 				$i =~ s/\s+/=/;
 				$fd = $i;
 				$fd =~ s/=.*//;
-				$fd =~ tr/a-z/A-Z/;
+				$fd =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
 				for (my $j=0;$j<=$#keyfields;$j++)
 				{
 					$i =~ s/=/=*/  if ($fd eq $keyfields[$j]);
@@ -2768,7 +2846,7 @@ sub insert_data
 {
     my ($self, $column_string, @values) = @_;
     my (@columns, $hash, $loop, $column, $j, $k);
-	$column_string =~ tr/a-z/A-Z/;
+	$column_string =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
     @columns = split (/,/, $column_string);
     #JWT: @values  = $self->quotewords (',', 0, $value_string);
 	if ($#columns > $#values)  #ADDED 20011029 TO DO AUTOSEQUENCING!
@@ -2795,7 +2873,7 @@ sub insert_data
 
     foreach $column (@{ $self->{order} })
     {
-		$column =~ tr/a-z/A-Z/;   #JWT
+		$column =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});   #JWT
 		$hash->{$column} = $self->{defaults}->{$column}  
 				if (defined($self->{defaults}->{$column}) && length($self->{defaults}->{$column}));
     }
@@ -2803,7 +2881,7 @@ sub insert_data
 	for ($loop=0; $loop <= $#columns; $loop++)
 	{
 	    $column = $columns[$loop];
-		$column =~ tr/a-z/A-Z/;   #JWT
+		$column =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
 	
 		my ($v);
 		if ($self->{fields}->{$column})
@@ -2978,24 +3056,27 @@ sub write_file
 		}
 	}
 
-	#$fields = join ($self->{_write}, @{ $self->{order} });
 	$fields = '';
-#$self->{_write} = 'xml';
-#print "-1: write=$self->{_write}=\n";
+
+	my $reccnt = scalar @{ $self->{records} };
 	if ($self->{_write} =~ /^xml/i)
 	{
 		require MIME::Base64;
-#print "-2: is XML!\n";
 		$fields = <<END_XML;
-<?xml version="1.0" encoding="UTF-8"?><database name="$self->{dbname}" user="$self->{dbuser}">
- <select query="select * from $self->{table}">
+<?xml version="1.0" encoding="UTF-8"?>
+END_XML
+		$fields .= <<END_XML  if ($self->{sprite_xsl});
+<?xml-stylesheet type="text/xsl" href="$self->{sprite_xsl}"?>
+END_XML
+		$fields .= <<END_XML;
+<database name="$self->{dbname}" user="$self->{dbuser}">
+ <select query="select * from $self->{table}" rows="$reccnt">
 END_XML
 		$fields .= '  <columns order="'.join(',',@{ $self->{order} }).'">'."\n";
 		my ($iskey, $haveadefault, $havemaxsize, $typeinfo);
 		for $i (0..$#{$self->{order}})
 		{
 			$iskey = 'NO';
-#print "-???- order($i)=${$self->{order}}[$i]= keys=".join('|', @keyfields)."=\n";
 			for ($j=0;$j<=$#keyfields;$j++)  #JWT: MARK KEY FIELDS.
 			{
 				if (${$self->{order}}[$i] eq $keyfields[$j])
@@ -3054,7 +3135,6 @@ END_XML
 		$fields =~ s/$self->{_write}$//;
 	}
 
-	#$fields =~ tr/a-z/A-Z/;   #JWT:MAKE SURE COLUMNS are UPPERCASE!
 	if ($self->{CBC} && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
 	{
 		print FILE $self->{CBC}->encrypt($fields).$/;
@@ -3065,12 +3145,15 @@ END_XML
 	}
 	my $rsinit = ($self->{_write} =~ /^xml/i) ? "  <row>\n" : '';
 	my $rsend = $rsinit ? "  </row>\n" : '';
-	for ($loop=0; $loop < scalar @{ $self->{records} }; $loop++) {
+
+	for ($loop=0; $loop < $reccnt; $loop++) {
+		#++$loop1;
 	    $record = $self->{records}->[$loop];
 
 	    next unless (defined $record);
 
 		$record_string = $rsinit;
+		#$record_string =~ s/\?/$loop1/;
 
  	    foreach $column (@{ $self->{order} })
  	    {
@@ -3140,26 +3223,11 @@ END_XML
 		'>' => '&gt;',
 		'"' => '&quot;',
 		'--' => '&#45;&#45;',
-#		"\0" => '&#0;'
 	);
-#$x = '66';
-#$y = sprintf('%x', '66');
-#$y;
-#$x = "42";
-#$y = hex($x);
-#$y;
-#$x = 'B';
-#$y = unpack('H2', $x);
-#$y;
 	sub xmlescape
 	{
 		my $res;
 
-#		if (ref($_[1]))   #SHOULDN'T NEED NOW - LOAD_DATABASE HANDLES THIS NOW.
-#		{
-#print "-$_[1]- IS A HASH REF!\n";
-#			$_[1] = '';
-#		}
 		$_[1] =~ s/\&/\&amp;/gs;
 		eval "\$_[1] =~ s/(".join('|', keys(%xmleschash)).")/\$xmleschash{\$1}/gs;";
 		#$_[1] =~ s/([\x01-\x1b\x7f-\xff])/"\&\#".ord($1).';'/egs;
@@ -3213,7 +3281,6 @@ sub load_database
 		@fields = ($xmldoc->{select}->{columns}->{order}) 
 				? split(/\,/, $xmldoc->{select}->{columns}->{order}) 
 				: keys(%{$xmldoc->{select}->{columns}->{column}});
-#print "-1: fields=".join('|',@fields)."=\n";
 		foreach my $i (0..$#fields)
 		{
 			$self->{key_fields} .= ($fields[$i] . ',')
@@ -3221,7 +3288,6 @@ sub load_database
 							eq 'PRIMARY');
 			${$self->{types}}{$fields[$i]} = 
 					$xmldoc->{select}->{columns}->{column}->{$fields[$i]}->{type};
-#print "----2: types($fields[$i]) =".${$self->{types}}{$fields[$i]}."=\n";
 			${$self->{lengths}}{$fields[$i]} = 
 					$xmldoc->{select}->{columns}->{column}->{$fields[$i]}->{precision};
 			${$self->{scales}}{$fields[$i]} = 
@@ -3234,44 +3300,43 @@ sub load_database
 			}
 			$self->{use_fields} .= $fields[$i] . ',';
 		}
-		$self->{records} = $xmldoc->{select}->{row};
+		if (ref($xmldoc->{select}->{row}) eq 'ARRAY')  #ADDED IF-STMT 20020611 TO HANDLE TABLES W/0 OR 1 RECORD!
+		{
+			$self->{records} = $xmldoc->{select}->{row};   #TABLE HAS >1 RECORD.
+		}
+		elsif (ref($xmldoc->{select}->{row}) eq 'HASH')
+		{
+			$self->{records}->[0] = $xmldoc->{select}->{row};  #TABLE HAS 1 RECORD.
+		}
+		else
+		{
+			$self->{records} = undef;   #TABLE HAS NO RECORDS!
+		}			
 		$xmldoc = undef;
-#print "-5: data1a=".$xmldoc->{select}->{row}->[0]->{TESDESC}."=\n";
-#print "-6: data1b=".$self->{records}->[0]->{TESDESC}."=\n";
 
 		#UNESCAPE ALL VALUES.
 
-		for (my $i=0;$i<=$#{$self->{records}};$i++)
+		if (ref($self->{records}) eq 'ARRAY')  #ADDED IF-STMT 20020611 TO SKIP TABLES W/NO RECORDS!
 		{
-			foreach my $j (@fields)
+			for (my $i=0;$i<=$#{$self->{records}};$i++)
 			{
-#print "-BEF- rec($i)=$self->{records}->[$i]->{$j}= pack=".join('|',unpack('C*', $self->{records}->[$i]->{$j}))."=\n"  if ($j eq 'JUST');
-#print "-BEF- rec($i)=$self->{records}->[$i]->{$j}= enc=".$self->{records}->[$i]->{$j}->{'xml:encoding'}."=\n"  if ($j eq 'JUST');
-				if ($self->{records}->[$i]->{$j}->{'xml:encoding'})
+				foreach my $j (@fields)
 				{
-#print "-DUR- content=".$self->{records}->[$i]->{$j}->{content}."=\n"  if ($j eq 'JUST');
-					$self->{records}->[$i]->{$j} = MIME::Base64::decode_base64($self->{records}->[$i]->{$j}->{content});
-#print "-DUR- rec($i)=$self->{records}->[$i]->{$j}=\n"  if ($j eq 'JUST');
+					if ($self->{records}->[$i]->{$j}->{'xml:encoding'})
+					{
+						$self->{records}->[$i]->{$j} = MIME::Base64::decode_base64($self->{records}->[$i]->{$j}->{content});
+					}
+					$self->{records}->[$i]->{$j} = ''  if (ref($self->{records}->[$i]->{$j}));
+					$self->{records}->[$i]->{$j} =~ s/\&lt;/\</gs;
+					$self->{records}->[$i]->{$j} =~ s/\&gt;/\>/gs;
+					$self->{records}->[$i]->{$j} =~ s/\&quot;/\"/gs;
+					$self->{records}->[$i]->{$j} =~ s/\&\#45;/\-/gs;
+					#$self->{records}->[$i]->{$j} =~ s/\&\#0;/\0/gs;
+					#$self->{records}->[$i]->{$j} =~ s/\&\#(\d+);/pack('C', $1)/egs;
+					$self->{records}->[$i]->{$j} =~ s/\&amp;/\&/gs;
 				}
-				$self->{records}->[$i]->{$j} = ''  if (ref($self->{records}->[$i]->{$j}));
-				$self->{records}->[$i]->{$j} =~ s/\&lt;/\</gs;
-				$self->{records}->[$i]->{$j} =~ s/\&gt;/\>/gs;
-				$self->{records}->[$i]->{$j} =~ s/\&quot;/\"/gs;
-				$self->{records}->[$i]->{$j} =~ s/\&\#45;/\-/gs;
-				#$self->{records}->[$i]->{$j} =~ s/\&\#0;/\0/gs;
-				#$self->{records}->[$i]->{$j} =~ s/\&\#(\d+);/pack('C', $1)/egs;
-				$self->{records}->[$i]->{$j} =~ s/\&amp;/\&/gs;
-#print "-AFT- rec($i)=$self->{records}->[$i]->{$j}= pack=".join('|',unpack('C*', $self->{records}->[$i]->{$j}))."=\n"  if ($j eq 'JUST');
-#print "-AFT- rec($i)=$self->{records}->[$i]->{$j}=\n"  if ($j eq 'JUST');
 			}
 		}
-
-#$x = '146';
-#$y = pack('C', $x);
-#$y;
-#$z = ord($y);
-#$z;
-
 	}
 	else
 	{
@@ -3313,7 +3378,7 @@ sub load_database
 		{
 			$dflt = undef;
 			($fields[$i],$tp,$dflt) = split(/=/,$fields[$i]);
-			$fields[$i] =~ tr/a-z/A-Z/;
+			$fields[$i] =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
 			$tp = 'VARCHAR(40)'  unless($tp);
 			$tp =~ tr/a-z/A-Z/;
 			$self->{key_fields} .= $fields[$i] . ',' 
@@ -3416,7 +3481,7 @@ sub load_columninfo
 #			eval {$xmldoc = $xs1->XMLin($self->{file}, suppressempty => undef); };
 			while (<FILE>)
 			{
-				last  if (/^\s*\<row\>\s*$/);
+				last  if (/^\s*\<row.*\>\s*$/);
 				$xmltext .= $_;
 			}
 			$xmltext .= <<END_XML;  #MAKE IT WELL-FORMED!
@@ -3447,7 +3512,6 @@ END_XML
 		}
 		close FILE;
 	}
-#print "-lcm: returns =$colmlist=\n";
 	return $colmlist;
 }
 
