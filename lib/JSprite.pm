@@ -464,7 +464,7 @@ eval {require 'OraSpriteFns.pl';};
 use vars qw ($VERSION $LOCK_SH $LOCK_EX);
 ##--
 
-$JSprite::VERSION = '5.40';
+$JSprite::VERSION = '5.43';
 $JSprite::LOCK_SH = 1;
 $JSprite::LOCK_EX = 2;
 
@@ -539,6 +539,7 @@ sub new
 		CBC			=> 0,       #JWT: 20020529: SAVE Crypt::CBC object, if encrypting!
 		sprite_xsl	=> '',      #JWT: 20020611: OPTIONAL XSL TEMPLATE FILE.
 		sprite_CaseFieldNames => 0,  #JWT: 20020618: FIELD-NAME CASE-SENSITIVITY?
+		sprite_lastsequence => '',   #JWT: ADDED 20020905 TO SUPPORT DBIx::GeneratedKey!
 	    };
 
     $self->{separator} = { Unix  => '/',    Mac => ':',   #JWT: BUGFIX.
@@ -776,7 +777,6 @@ sub sql
 {
     my ($self, $query) = @_;
     my ($command, $status);
-
     return wantarray ? () : -514  unless ($query);
 
 	$sprite_user = $self->{'dbuser'};   #ADDED 20011026.
@@ -1726,10 +1726,10 @@ NOMATCHED1:
 
 sub check_for_reload
 {
-    my ($self, $file) = @_;
-    my ($table, $path, $status);
+	my ($self, $file) = @_;
+	my ($table, $path, $status);
 
-    return unless ($file);
+	return unless ($file);
 
 	if ($file =~ /^DUAL$/i)  #ADDED 20000306 TO HANDLE ORACLE'S "DUAL" TABLE!
 	{
@@ -1748,34 +1748,33 @@ sub check_for_reload
 		return (1);
 	}
 
-    ($path, $table) = $self->get_path_info ($file);
-	#$table =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});
-    $file   = $path . $table;  #  if ($table eq $file);
+	($path, $table) = $self->get_path_info ($file);
+	$file   = $path . $table;  #  if ($table eq $file);
 	$file .= $self->{ext}  if ($self->{ext});  #JWT:ADD FILE EXTENSIONS.
-	#$file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});
 	$self->{table} = $table;
-    $status = 1;
+	$status = 1;
 
 	my (@stats) = stat ($file);
-    if ( ($self->{table} ne $table) || ($self->{file} ne $file
-    		|| $self->{timestamp} != $stats[9]) ) {
-	#stat ($file);
-	#if ( (-e _) && (-T _) && (-s _) && (-r _) ) {
-	if ( (-e _) && (-s _) && (-r _) ) {
+	if ( ($self->{table} ne $table) || ($self->{file} ne $file
+			|| $self->{timestamp} != $stats[9]) )
+	{
+		if ( (-e _) && (-s _) && (-r _) )
+		{
 
-	    $self->{table} = $table;
-		#$file .= $self->{ext}  if ($self->{ext});  #JWT:ADD FILE EXTENSIONS.
-	    $self->{file}  = $file;
-	    $status        = $self->load_database ($file);
-		$self->{timestamp} = $stats[9];
-	} else {
-		$errdetails = $file;   #20000114
-	    $status = 0;
+			$self->{table} = $table;
+			$self->{file}  = $file;
+			$status        = $self->load_database ($file);
+			$self->{timestamp} = $stats[9];
+		}
+		else
+		{
+			$errdetails = $file;   #20000114
+			$status = 0;
+		}
 	}
-    }
 
 	$errdetails = $file  if ($status == 0);   #20000114
-    return $status;
+	return $status;
 }
 
 sub rollback
@@ -1820,7 +1819,6 @@ sub rollback
 			$blobfile =~ s/\_$$\.del/\.ldt/;
 			rename ($tempfile, $blobfile);
 		}
-		$self->{dirty} = 0;
 		$self->{dirty} = 0;
 	}
 	return $status;
@@ -2230,6 +2228,16 @@ sub drop
 		my $cfr = $self->check_for_reload($table) || -501;
 		return $cfr  if ($cfr < 0);
 
+		@{$self->{records}} = ();    #ADDED NEXT 7 20021025 TO REMOVE DANGLING DATA (CAUSED TESTS TO FAIL AT 9)!
+		@{$self->{order}} = ();
+		%{$self->{types}} = ();
+		%{$self->{lengths}} = ();
+		%{$self->{scales}} = ();
+		%{$self->{defaults}} = ();
+		$self->{key_fields} = '';
+
+		#SOME DAY, I SHOULD ADD CODE TO DELETE DANGLING BLOB FILES!!!!!!!
+
 #		return (unlink $self->{file} || -501);  #NEXT 2 CHGD. TO FOLLOWING 20020606.
 #		return 
 		return (unlink $self->{file}) ? '0E0' : -501;
@@ -2319,7 +2327,6 @@ sub create
 				"$quote$str$quote"/egs;
 
 		my (@fieldlist) = split(/,/,$extra);
-		my ($fields) = '';
 		my $fieldname;
 		for ($i=0;$i<=$#fieldlist;$i++)
 		{
@@ -2333,6 +2340,16 @@ sub create
 				@keyfields = split(/\x02\^2jSpR1tE\x02/,$keyfields);
 			}
 		}
+
+		#ALTERED THIS ROUTINE 20021024 TO DO CREATES VIA WRITE_FILE (AS IT SHOULD!)
+		#SO THAT NEW XML TABLES GET CREATED IN XML!!!!
+
+		@{$self->{order}} = ();
+		%{$self->{types}} = ();
+		%{$self->{lengths}} = ();
+		%{$self->{scales}} = ();
+		%{$self->{defaults}} = ();
+		$self->{key_fields} = join(',',@keyfields);
 		while (@fieldlist)
 		{
 			$i = shift(@fieldlist);
@@ -2425,50 +2442,18 @@ sub create
 					$value = $rawvalue;
 				}
 			}
-			$fields .= $fieldname . '=';
-			for (my $j=0;$j<=$#keyfields;$j++)
-			{
-				if ($fieldname eq $keyfields[$j])
-				{
-					$fields .= '*';
-					last;
-				}
-			}
-			#$fields .= $tp . '(' . $len;   #CHGD. TO NEXT 20020110.
-			$fields .= $tp;
-			unless ($tp =~ /$BLOBTYPES/)
-			{
-				$fields .= '(' . $len;
-				$fields .= ',' . $scale  if ($scale && $tp =~ /$NUMERICTYPES/);
-				$fields .= ')';
-			}
-			$fields .= '=' . $value  if (length($value));
-			$fields .= $self->{_write};
+			push (@{$self->{order}}, $fieldname);
+			${$self->{types}}{$fieldname} = $tp;
+			${$self->{lengths}}{$fieldname} = $len;
+			${$self->{scales}}{$fieldname} = $scale;
+			${$self->{defaults}}{$fieldname} = $value;
 		}
-		$fields =~ s|\x02\^2jSpR1tE\x02|\,|g;
-		#$fields =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
-		my $new_file = $self->get_path_info ($table);
-		my ($new_filename) = $new_file;  #ADDED 20000225;
-		$new_file .= $self->{ext}  if ($self->{ext});  #JWT:ADD FILE EXTENSIONS.
-		$new_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
-		$errdetails = $new_file;           #ADDED NEXT 2 20000225!
-		return -520  if (-e $new_file);
-		if (open (FILE, ">$new_file"))
-		{
-			binmode FILE;   #20000404
-			$fields =~ s/$self->{_write}$//;
-			print FILE "$fields$/";
-			close (FILE);
-			#$self->check_for_reload ($new_filename) || return (-501);  #ADDED 20000225 HANDLE USER DOING CREATE, THEN COMMIT!  #CHGD. TO NEXT 20020110 TO BETTER CATCH ERRORS.
-			my $cfr = $self->check_for_reload($table) || -501;
-			return $cfr  if ($cfr < 0);
+		$self->{dirty} = 1;
+		@{$self->{records}} = ();    #ADDED 20021025 TO REMOVE DANGLING DATA (CAUSED TESTS TO FAIL AT 9)!
 
-		}
-		else
-		{
-			$errdetails = "$@/$? (file:$new_file)";
-			return -511;
-		}
+		$self->commit($table);       #ALWAYS AUTOCOMMIT NEW TABLES (ORACLE DOES)!
+		my $cfr = $self->check_for_reload($table) || -501;
+		return $cfr  if ($cfr < 0);		
 	}
 	elsif ($query =~ /^create\s+sequence\s+($self->{path})(?:\s+inc(?:rement)?\s+by\s+(\d+))?(?:\s+start\s+with\s+(\d+))?/is)
 	{
@@ -2717,7 +2702,7 @@ sub alter
 
 			$status = $self->parse_columns ("\L$type\E", $column);
 			$self->{dirty} = 1;
-			$self->commit($table);
+			$self->commit($table);   #ALWAYS AUTOCOMMIT TABLE ALTERATIONS!
 			return $status;
 		}
 		else
@@ -2821,6 +2806,7 @@ sub insert
 					close (FILE);
 				}
 				$values[$i] = $incval;
+				$self->{sprite_lastsequence} = $incval;    #ADDED 20020905 TO SUPPORT DBIx::GeneratedKey!
 			}
 			else
 			{
@@ -2901,6 +2887,7 @@ sub insert_data
 				else
 				{
 					$v = ++$self->{defaults}->{$column};
+					$self->{sprite_lastsequence} = $v;    #ADDED 20020905 TO SUPPORT DBIx::GeneratedKey!
 				}
 			}
 			elsif (length($values[$loop]) || !length($self->{defaults}->{$column}))
@@ -2976,7 +2963,7 @@ sub insert_data
 	}
 
 	#20000201 - FIX UNIQUE-KEY TEST FOR LARGE DATASETS.
-	
+
 recloop: 	for ($k=0;$k < scalar @{ $self->{records} }; $k++)  #CHECK EACH RECORD.
 	{
 		$matchcnt = 0;
@@ -3318,6 +3305,8 @@ sub load_database
 
 		if (ref($self->{records}) eq 'ARRAY')  #ADDED IF-STMT 20020611 TO SKIP TABLES W/NO RECORDS!
 		{
+			require MIME::Base64;  #ADDED 20020816!
+
 			for (my $i=0;$i<=$#{$self->{records}};$i++)
 			{
 				foreach my $j (@fields)
@@ -3548,6 +3537,7 @@ sub pscolfn
 		close (FILE);
 	}
 	$value = $incval;
+	$self->{sprite_lastsequence} = $incval;    #ADDED 20020905 TO SUPPORT DBIx::GeneratedKey!
 	return $value;
 }
 

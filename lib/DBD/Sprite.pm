@@ -17,7 +17,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.40';
+$VERSION = '0.43';
 
 # Preloaded methods go here.
 
@@ -66,6 +66,9 @@ sub connect {
 #foreach my $xx (keys %$attr) {print "-key=$xx= val=".$attr->{$xx}."=\n";};
     my($port);
     my($cWarn, $i, $j);
+
+	$_ = '';    #ONLY WAY I KNOW HOW TO RETURN ERRORS FROM HERE ($DBI::err WON'T WORK!)
+
     # Avoid warnings for undefined values
     $dbuser ||= '';
     $dbpswd ||= '';
@@ -94,7 +97,9 @@ sub connect {
 		{
 			unless (open(DBFILE, "<$dbfid"))
 			{
-				DBI::set_err($drh, -1, "No such database ($dbname)!");
+				#DBI::set_err($this, -1, "No such database ($dbname)!");  #REPLACED W/NEXT LINE 20021021!
+				warn "No such database ($dbname)!"  if ($attr->{PrintError});
+				$_ = "-1:No such database ($dbname)!";
 				return undef;
 			}
 		}
@@ -106,7 +111,9 @@ sub connect {
 				{
 					unless (open(DBFILE, "<$ENV{HOME}/$dbfid"))
 					{
-						DBI::set_err($drh, -1, "No such database ($dbname)!");
+						#DBI::set_err($this, -1, "No such database ($dbname)!");  #REPLACED W/NEXT LINE 20021021!
+						warn "No such database ($dbname)!"  if ($attr->{PrintError});
+						$_ = "-1:No such database ($dbname)!";
 						return undef;
 					}
 				}
@@ -187,7 +194,9 @@ sub connect {
 		}
 	}
 	close (DBFILE);
-	DBI::set_err($drh, -1, "Invalid username/password!");
+	#DBI::set_err($this, -1, "Invalid username/password!");  #REPLACED W/NEXT LINE 20021021!
+	warn "Invalid username/password!"  if ($attr->{PrintError});
+	$_ = "-1:Invalid username/password!";
 	return undef;
 }
 
@@ -756,6 +765,8 @@ sub execute
 	$sth->{'SCALE'} = \@{$spriteref->{SCALE}};
 	$sth->{'NULLABLE'} = \@{$spriteref->{NULLABLE}};
     $sth->STORE('sprite_resv',\@resv);
+    #ADDED NEXT LINE 20020905 TO SUPPORT DBIx::GeneratedKey!
+    $sth->{Database}->STORE('sprite_insertid', $spriteref->{'sprite_lastsequence'});
 	 if (defined $retval)
 	 {
 	    return $retval ? $retval : '0E0';
