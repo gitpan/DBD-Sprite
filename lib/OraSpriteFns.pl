@@ -316,7 +316,7 @@ sub TO_NUMBER
 	$rtnTime =~ s/[^\d\.\+\-Vv]//g;
 	my $dec = 0;
 	$dec = length($2)  if ($fmt =~ /([\d\+\-]*)V(\d*)/);
-	my ($dec) = length($2);
+	#my ($dec) = length($2);
 	$rtnTime *= (10 ** $dec);
 	return sprintf('%.0f',$rtnTime);   #ROUND IT.
 	return $rtnTime;

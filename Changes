@@ -99,4 +99,32 @@ Revision history for Perl extension DBD::Sprite.
 	  It should be noted that these functions do almost no error-checking.
 	- Added "AUTONUMBER" datatype to allow autonumbering without sequences.  
 	  This emulates the way M$-Access(ODBC) does things.
- 
+0.27	 Fri Nov 15
+	- Eliminated "reserved" status of special characters \x02 .. \x06 and \n 
+	  by now using single "reserved" string pattern:  "\x02\^#jSpR1tE\x02", 
+	  where "#" can be any digit 0..9.  The purpose of this is to allow for 
+	  temporarily protecting some strings while performing string searches 
+	  and substitutions, ie. protecting commas within quoted literal values 
+	  while splitting the encompassing string on commas as separators.  \n 
+	  has previously been "flattened" out into spaces in order to treat 
+	  multiline queries as a single line.  This is still done, but numerous 
+	  regices were modified with the "s" option.  Please report anything that 
+	  might be broken by this new release!
+0.30  Thu Jan 10
+	- Fixed bug where specifying a negative number in a "where" clause 
+	  as an unbound constant, returned all records and set the field in all 
+	  records to that number (ouch!)
+	- Fixed bug there double-backslashes in data inserted into a table were 
+	  converted to a single backslash.
+	- Added better "BLOB" support.  BLOB/LONG/MEMO fields no longer have 
+	  default length specified as 5000 and data should no longer be truncated.
+	- ADDED ENCRYPTION OPTION!  If the "Crypt::CBC", and "Crypt::IDEA" or 
+	  "Crypt::DES" are available, you can connect specifying 
+	  "sprite_Crypt => 'IDEA;any_key_string'" (use "DES" in lieu of "IDEA", 
+	  if so inclined).  To read in existing unencrypted tables and write them 
+	  out encrypted, use "sprite_Crypt => 'encrypt=IDEA;your_key_string'".
+	  To read in encrypted databases and write them back unencrypted, use: 
+	  "sprite_Crypt => 'decrypt=IDEA;your_key_string'".  Note:  Any method 
+	  of encryption that Crypt::CBC supports may be used instead of IDEA or 
+	  DES, if you have the module installed.
+

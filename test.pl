@@ -59,7 +59,7 @@ $res = $dbh->do(<<END_SQL);
 			primary key (numfield)
 	)
 END_SQL
-($res == 1) ? print "ok 5\n" : print "not ok 5 ($res != 1)\n";
+($res == 0E0) ? print "ok 5\n" : print "not ok 5 ($res != 0E0)\n";
 
 # 6: (RE)CREATE A TEST TABLE NAMED "TESTTABLE".
 

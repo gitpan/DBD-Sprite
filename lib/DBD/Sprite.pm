@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.26';
+$VERSION = '0.30';
 
 # Preloaded methods go here.
 
@@ -62,6 +62,7 @@ sub connect {
     my($drh, $dbname, $dbuser, $dbpswd, $attr, $old_driver, $connect_meth) = @_;
     my($port);
     my($cWarn, $i, $j);
+
     # Avoid warnings for undefined values
     $dbuser ||= '';
     $dbpswd ||= '';
@@ -270,7 +271,7 @@ sub prepare
 {
 	my ($resptr, $sqlstr, $attribs) = @_;
 	local ($_);
-	$sqlstr =~ s/\n/ /g;
+	#$sqlstr =~ s/\n/ /g;  #REMOVED 20011107.
 	
 	DBI::set_err($resptr, 0, '');
 	
@@ -281,7 +282,7 @@ sub prepare
 	$csr->STORE('sprite_fetchcnt', 0);
 	$csr->STORE('sprite_reslinev','');
 	#$sqlstr =~ /(into|from|update|table) \s*(\w+)/gi;  #CHANGED 20000831 TO NEXT LINE!
-	$sqlstr =~ /(into|from|update|table|sequence)\s+(\w+)/i;
+	$sqlstr =~ /(into|from|update|table|sequence)\s+(\w+)/is;
 	my ($spritefid) = $2;
 	unless ($spritefid)   #NEXT 5 ADDED 20000831!
 	{
@@ -311,7 +312,12 @@ sub prepare
 	}
 	else   #CREATE A NEW SPRITE OBJECT.
 	{
-		$myspriteref = new JSprite;
+		$myspriteref = new JSprite(%{$resptr->{sprite_attrhref}});
+		unless ($myspriteref)
+		{
+			DBI::set_err($resptr, -1, "Unable to create JSprite handle ($@)!");
+			return undef;
+		}
 		$csr->STORE('sprite_spritedb', $myspriteref);
 		my ($openhash) = $resptr->FETCH('sprite_SpritesOpen');
 		$openhash->{$spritefid} = \$myspriteref;
@@ -325,6 +331,7 @@ sub prepare
 		#ABOVE CHANGED TO BELOW(1 LINE) 20001010!
 		$myspriteref->{CaseTableNames} = $resptr->{sprite_attrhref}->{sprite_CaseTableNames};
 		$myspriteref->{StrictCharComp} = $resptr->{sprite_attrhref}->{sprite_StrictCharComp};
+		#DON'T NEED!#$myspriteref->{Crypt} = $resptr->{sprite_attrhref}->{sprite_Crypt};  #ADDED 20020109.
 		$myspriteref->{sprite_forcereplace} = $resptr->{sprite_attrhref}->{sprite_forcereplace};  #ADDED 20010912.
 		$myspriteref->{dbuser} = $resptr->FETCH('sprite_dbuser');  #ADDED 20011026.
 	}
@@ -335,15 +342,15 @@ sub prepare
 	#SET UP STMT. PARAMETERS.
 	
 	$csr->STORE('sprite_params', []);
-	#$sqlstr =~ s/([\'\"])([^$1]*?)\?([^$1]*?$1)/$1$2\x02$3/g;  #PROTECT ? IN QUOTES (DATA)!
+	#$sqlstr =~ s/([\'\"])([^$1]*?)\?([^$1]*?$1)/$1$2\x02\^2jSpR1tE\x02$3/g;  #PROTECT ? IN QUOTES (DATA)!
 	#PREV. LINE CHGD TO NEXT 5 20010312 TO FIX!
 	$sqlstr =~ s/([\'\"])([^\1]*?)\1/
 			my ($quote) = $1;
 			my ($str) = $2;
-			$str =~ s|\?|\x02|g;   #PROTECT COMMAS IN QUOTES.
-			"$quote$str$quote"/eg;
+			$str =~ s|\?|\x02\^2jSpR1tE\x02|gs;   #PROTECT COMMAS IN QUOTES.
+			"$quote$str$quote"/egs;
 	my $num_of_params = ($sqlstr =~ tr/\?//);
-	$sqlstr =~ s/\x02/\?/g;
+	$sqlstr =~ s/\x02\^2jSpR1tE\x02/\?/gs;
 	$csr->STORE('NUM_OF_PARAMS', $num_of_params);	
     return ($csr);
 }
@@ -361,7 +368,7 @@ sub commit
 	foreach (keys %{$dB->{sprite_SpritesOpen}})
 	{
 		next  unless (defined($dB->{'sprite_SpritesOpen'}->{$_}));
-		next  if (/^USER_TABLES$/i);
+		next  if (/^(USER|ALL)_TABLES$/i);
 		$commitResult = ${$dB->{'sprite_SpritesOpen'}->{$_}}->commit($_);
 		return undef  if (!defined($commitResult) || $commitResult <= 0);
 	}
@@ -381,7 +388,7 @@ sub rollback
 	foreach (keys %{$dB->{sprite_SpritesOpen}})
 	{
 		next  unless (defined($dB->{'sprite_SpritesOpen'}->{$_}));
-		next  if (/^USER_TABLES$/i);
+		next  if (/^(USER|ALL)_TABLES$/i);
 		${$dB->{'sprite_SpritesOpen'}->{$_}}->rollback($_);
 	}
 	return 1;
@@ -565,6 +572,8 @@ my (%typehash) = (
 	'VARCHAR' => 12,
 	'VARCHAR2' => 12,
 	'BOOLEAN' => -7,    #ADDED 20000308!
+	'BLOB'	=> 113,     #ADDED 20020110!
+	'MEMO'	=> -1,      #ADDED 20020110!
 );
 
 $DBD::Sprite::st::imp_data_size = 0;
@@ -614,23 +623,23 @@ sub execute
     my $sqlstr = $sth->{'Statement'};
 
 	#NEXT 8 LINES ADDED 20010911 TO FIX BUG WHEN QUOTED VALUES CONTAIN "?"s.
-    $sqlstr =~ s/\\\'/\x03/g;      #PROTECT ESCAPED DOUBLE-QUOTES.
-    $sqlstr =~ s/\'\'/\x04/g;      #PROTECT DOUBLED DOUBLE-QUOTES.
+    $sqlstr =~ s/\\\'/\x02\^3jSpR1tE\x02/gs;      #PROTECT ESCAPED DOUBLE-QUOTES.
+    $sqlstr =~ s/\'\'/\x02\^4jSpR1tE\x02/gs;      #PROTECT DOUBLED DOUBLE-QUOTES.
 	$sqlstr =~ s/\'([^\']*?)\'/
 			my ($str) = $1;
-			$str =~ s|\?|\x02|g;   #PROTECT QUESTION-MARKS WITHIN QUOTES.
-			"'$str'"/eg;
-	$sqlstr =~ s/\x04/\'\'/g;      #UNPROTECT DOUBLED DOUBLE-QUOTES.
-	$sqlstr =~ s/\x03/\\\'/g;      #UNPROTECT ESCAPED DOUBLE-QUOTES.
+			$str =~ s|\?|\x02\^2jSpR1tE\x02|gs;   #PROTECT QUESTION-MARKS WITHIN QUOTES.
+			"'$str'"/egs;
+	$sqlstr =~ s/\x02\^4jSpR1tE\x02/\'\'/gs;      #UNPROTECT DOUBLED DOUBLE-QUOTES.
+	$sqlstr =~ s/\x02\^3jSpR1tE\x02/\\\'/gs;      #UNPROTECT ESCAPED DOUBLE-QUOTES.
 
 	#CONVERT REMAINING QUESTION-MARKS TO BOUND VALUES.
 
     for (my $i = 0;  $i < $numParam;  $i++)
     {
-		$params->[$i] =~ s/\?/\x02/g;   #ADDED 20001023 TO FIX BUG WHEN PARAMETER OTHER THAN LAST CONTAINS A "?"!
-        $sqlstr =~ s/\?/"'".$params->[$i]."'"/e;
+		$params->[$i] =~ s/\?/\x02\^2jSpR1tE\x02/gs;   #ADDED 20001023 TO FIX BUG WHEN PARAMETER OTHER THAN LAST CONTAINS A "?"!
+        $sqlstr =~ s/\?/"'".$params->[$i]."'"/es;
     }
-	$sqlstr =~ s/\x02/\?/g;     #ADDED 20001023! - UNPROTECT PROTECTED "?"s.
+	$sqlstr =~ s/\x02\^2jSpR1tE\x02/\?/gs;     #ADDED 20001023! - UNPROTECT PROTECTED "?"s.
 	my ($spriteref) = $sth->FETCH('sprite_spritedb');
 
 	#CALL JSPRITE TO DO THE SQL!

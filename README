@@ -31,7 +31,7 @@ DESCRIPTION
 	in your sql.
 	7) NULL is handled as an empty string.
 	8) Oracle Sequences are supported!
-	9) Numeric, Char(#), and Varchar(#) datatypes are supported!
+	9) Numeric, Char(#), Varchar(#), and Long/Blob datatypes are supported!
 	10) Autonumbering (without sequences) is now also supported!
   
     See the DBI(3) manpage for details on DBI, the JSprite(3) manpage
@@ -368,7 +368,8 @@ Metadata
 		Works
 
     LongReadLen
-    		Should work
+    		works, except setting to zero allows any length of data to be 
+    		read.
 
     LongTruncOk
     		Works
@@ -397,13 +398,6 @@ Metadata
 		Record delimiter string in use for the database.
 
 
-    The following are environment variables specifically recognized by Sprite.
-
-    SPRITE_HOME
-        Environment variable specifying a path to search for Sprite
-        databases (*.sdb) files.
-
-
     The following are Sprite-specific options which can be set when connecting.
 
     sprite_CaseTableNames
@@ -412,7 +406,26 @@ Metadata
         have two separate tables such as "test" and "TEST", set this option
         to 1.
 
-    sprite_StrictCharComp  (NEW!)
+	sprite_Crypt  (NEW)
+		"0" by defalt.  Specifies that encryption is to be used when storing 
+		the data in the flat-file.  To use, download "Crypt::CBC", and one 
+		or more of "Crypt::DES", "Crypt::IDEA", or "Crypt::Blowfish".  You 
+		can specify using any of the following formats:
+		
+			sprite_Crypt => 'my key string'
+				Use Blowfish encryption.
+			sprite_Crypt => 'DES;my key string'
+				Use DES encryption.
+			sprite_Crypt => 'encrypt=CBC;IDEA;my key string'
+				Use IDEA encription, but read in table as unencrypted, then 
+				write it out encrypted (great for encrypting previously 
+				unencrypted tables).
+			sprite_Crypt => 'decrypt=CBC;Blowfish;my key string'
+				use Blowfish encryption, but write out table unencrypted. 
+				This allows one to fetch an encrypted table and write it back 
+				out unencrypted.
+
+    sprite_StrictCharComp
         CHAR fields are always right-padded with spaces to fill out
         the field.  Old (pre 5.17) Sprite behaviour was to require the
         padding be included in literals used for testing equality in
@@ -420,6 +433,13 @@ Metadata
         do not require this when testing DBIx-Recordset, so Sprite will
         automatically right-pad literals when testing for equality.
         To disable this and force the old behavior, set this option to 1.
+
+    The following are environment variables specifically recognized by Sprite.
+
+    SPRITE_HOME
+        Environment variable specifying a path to search for Sprite
+        databases (*.sdb) files.
+
 
 
 Driver private methods
@@ -466,13 +486,13 @@ Data restrictions
 
 	Although DBD::Sprite supports the following datatypes:
 		NUMBER FLOAT DOUBLE INT INTEGER NUM CHAR VARCHAR VARCHAR2 
-		DATE LONG BLOB and MEMO, there are really only 3 basic datatypes 
-		(NUMBER, CHAR, and VARCHAR).  This is because Perl treates 
+		DATE LONG BLOB and MEMO, there are really only 4 basic datatypes 
+		(NUMBER, CHAR, VARCHAR, and BLOB).  This is because Perl treates 
 		everything as simple strings.  The first 5 are all treated as "numbers" 
 		by Perl for sorting purposes and the rest as strings.  This is seen 
 		when sorting, ie NUMERIC types sort as 1,5,10,40,200, whereas 
 		STRING types sort these as 1,10,200,40,5.  CHAR fields are right-
-		padded with spaces when stored.  LONG-type fields are subject to 
+		padded with spaces when stored.  LONG/BLOB-type fields are subject to 
 		truncation by the "LongReadLen" attribute value.
 
 	DBD::Sprite works with the tieDBI module, if "Sprite => 1" lines are added 
@@ -480,7 +500,10 @@ Data restrictions
 	necessary, and I will investigate when I have time.
 	
 TODO
-    Extensions of DBD::Sprite
+    Add "BLOB" datatype that will store it's contents in separate files.
+    (Currently all "BLOB/MEMO" data is stored in the same flatfile as the 
+    rest of the data making for huge (and slow) tables (Hopefully, next 
+    release).
 
     Joins
         The current version of the module works with single table SELECTs
@@ -621,6 +644,34 @@ Revision history for Perl extension DBD::Sprite.
       It should be noted that these functions do almost no error-checking.
     - Added "AUTONUMBER" datatype to allow autonumbering without sequences.
       This emulates the way M$-Access(ODBC) does things.
+0.27	 Fri Nov 15
+	- Eliminated "reserved" status of special characters \x02 .. \x06 and \n 
+	  by now using single "reserved" string pattern:  "\x02\^#jSpR1tE\x02", 
+	  where "#" can be any digit 0..9.  The purpose of this is to allow for 
+	  temporarily protecting some strings while performing string searches 
+	  and substitutions, ie. protecting commas within quoted literal values 
+	  while splitting the encompassing string on commas as separators.  \n 
+	  has previously been "flattened" out into spaces in order to treat 
+	  multiline queries as a single line.  This is still done, but numerous 
+	  regices were modified with the "s" option.  Please report anything that 
+	  might be broken by this new release!
+0.30  Thu Jan 10
+	- Fixed bug where specifying a negative number in a "where" clause 
+	  as an unbound constant, returned all records and set the field in all 
+	  records to that number (ouch!)
+	- Fixed bug there double-backslashes in data inserted into a table were 
+	  converted to a single backslash.
+	- Added better "BLOB" support.  BLOB/LONG/MEMO fields no longer have 
+	  default length specified as 5000 and data should no longer be truncated.
+	- ADDED ENCRYPTION OPTION!  If the "Crypt::CBC", and "Crypt::IDEA" or 
+	  "Crypt::DES" are available, you can connect specifying 
+	  "sprite_Crypt => 'IDEA;any_key_string'" (use "DES" in lieu of "IDEA", 
+	  if so inclined).  To read in existing unencrypted tables and write them 
+	  out encrypted, use "sprite_Crypt => 'encrypt=IDEA;your_key_string'".
+	  To read in encrypted databases and write them back unencrypted, use: 
+	  "sprite_Crypt => 'decrypt=IDEA;your_key_string'".  Note:  Any method 
+	  of encryption that Crypt::CBC supports may be used instead of IDEA or 
+	  DES, if you have the module installed.
 
 SEE ALSO
 
