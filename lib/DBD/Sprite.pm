@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.22';
+$VERSION = '0.24';
 
 # Preloaded methods go here.
 
@@ -105,17 +105,13 @@ sub connect {
 		for ($i=0;$i<=$inputcnt;$i+=5)  #SHIFT OFF LINES UNTIL RIGHT USER FOUND.
 		{
 			last  if ($dbinputs[1] eq $dbuser);
-print "-???- dbinputs1=$dbinputs[1]= dbuser=$dbuser=\n";
 			if ($dbinputs[1] =~ s/^$dbuser\:(.*)/$dbuser/)
 			{
 				$dfltattrs = $1;
-print "-dfltattrs=$dfltattrs=\n";
 				eval "\%dfltattr = ($dfltattrs)";
 				foreach my $j (keys %dfltattr)
 				{
-print "-BEF: attr($j) =".$attr->{$j}."= dflt=$dfltattr{$j}=\n";
 					$attr->{$j} = $dfltattr{$j};
-print "-AFT: attr($j) =".$attr->{$j}."=\n";
 				}
 				last;
 			}
@@ -330,6 +326,7 @@ sub prepare
 		$myspriteref->{CaseTableNames} = $resptr->{sprite_attrhref}->{sprite_CaseTableNames};
 		$myspriteref->{StrictCharComp} = $resptr->{sprite_attrhref}->{sprite_StrictCharComp};
 		$myspriteref->{sprite_forcereplace} = $resptr->{sprite_attrhref}->{sprite_forcereplace};  #ADDED 20010912.
+		$myspriteref->{dbuser} = $resptr->FETCH('sprite_dbuser');  #ADDED 20011026.
 	}
 	$myspriteref->{LongTruncOk} = $resptr->FETCH('LongTruncOk');
 	my ($silent) = $resptr->FETCH('PrintError');

@@ -74,3 +74,20 @@ Revision history for Perl extension DBD::Sprite.
 	  to not work right when one opened a database, closed that database, then 
 	  opened a second database with different record and or field separators.
 	  Caught by Larry Yudelson, Thanks!
+0.24  Fri Oct 26
+	- Added new regex feature to allow one to capture regex matches and update 
+	  field values, ie:  
+	       update MYTABLE set FIELD1 = '$1' where FIELD2 =~ '(\d+)'
+	  This will set FIELD1 to the 1st number found in FIELD2 in the same 
+	  record.  Up to 2 matches for each "where" expression containing "=~" or 
+	  "!~" may be captured.  $1 .. $n correspond to each set of unescaped 
+	  parenthesis from left to right in the "where" clause.
+	- Added TO_CHAR function for converting Perl "time" values to printable 
+	  formats.  Has most date and numeric functions in the two-argument 
+	  form of the Oracle "TO_CHAR" function, which it is designed to emulate.
+	- Added some optimization for mass-updates.
+	- Added many other new Oracle functions (TO_NUMBER, USER, ABS, COS, EXP, 
+	  FLOOR, MOD, POWER, ROUND, SIGN, SIN, TAN, TRUNC, CHR, INITCAP, LTRIM, 
+	  REPLACE, RTRIM, TRANSLATE, ASCII, LENGTH, SYSDATE.  All should now 
+	  work when selected from "DUAL".
+

@@ -4,6 +4,8 @@ README
 Makefile.PL
 lib/JSprite.pm
 lib/OraSpriteFns.pl
+lib/to_date.pl
+lib/to_char.pl
 lib/DBD/Sprite.pm
 test.pl
 makesdb.pl

@@ -43,6 +43,18 @@ sub TO_DATE
 	return $rtnTime;
 }
 
+sub TO_CHAR
+{
+	do 'to_char.pl';
+	if ($err =~ /^Invalid/)
+	{
+		$errdetails = $err;
+		$rtnTime = '';
+		$self->display_error(-503);
+	}
+	return $rtnTime;
+}
+
 sub CONCAT
 {
 
