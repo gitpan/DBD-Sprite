@@ -38,4 +38,24 @@ Revision history for Perl extension DBD::Sprite.
 	  string of the field name, ie. "update table set FIELD1 = FIELD2" 
 	  should now work properly instead of setting FIELD1 to "FIELD2" in 
 	  every record of "table".
+0.17  Fri Mar 09
+	- Fixed bug where types not returned for cursor after update, 
+	  Fixed bug where table names not returned if space appeared after 
+	  "table_name"?
+	- Fixed bug in "makesdb.pl" -- was encrypting wrong argument.
+0.18  Wed Mar 13
+	- Changed comparisens of literal data with "CHAR" fields to first 
+	  pad the literal with appropriate spaces so that eqality tests would 
+	  pass (to work like Oracle and the way DBIx-Recordset expects).
+	  Also added new option "StrictCharComp" to force the old behavior.
+	- Fixed bug that occasionally inserted a "0" instead of "" in numeric 
+	  fields when inserting NULL.  To get the proper "old" behavior, 
+	  specify a default of zero for each numeric field, ie.
+	  "NUMFIELD=NUMBER=0" in the top line of your Sprite table files.
+	- Added some code to check syntax of "where" clauses. (for DBIx-
+	  Recordset.
+	- Fixed a couple of other small bugs that DBIx-Recordset tests found.
+0.19  Wed Mar 21
+	- Fixed problem seeing all Windows file-names due to case-insensitivity 
+	  in Windows.
 

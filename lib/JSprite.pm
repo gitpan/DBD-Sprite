@@ -1,7 +1,7 @@
 #!/usr/local/bin/perl5
 
 ##++
-##    JSprite v1.15
+##    JSprite
 ##    Sprite v.3.2
 ##    Last modified: August 22, 1998
 ##
@@ -463,7 +463,7 @@ eval {require 'OraSpriteFns.pl';};
 use vars qw ($VERSION $LOCK_SH $LOCK_EX);
 ##--
 
-$JSprite::VERSION = '5.16';
+$JSprite::VERSION = '5.19';
 $JSprite::LOCK_SH = 1;
 $JSprite::LOCK_EX = 2;
 
@@ -517,7 +517,8 @@ sub new
 		LongTruncOk  => 0,     #JWT: 19991104: ERROR OR NOT IF TRUNCATION.
 		RaiseError   => 0,     #JWT: 20000114: ADDED DBI RAISEERROR HANDLING.
 		silent       => 0,
-		dirty			 => 0      #JWT: 20000229: PREVENT NEEDLESS RECOMMITS.
+		dirty			 => 0,     #JWT: 20000229: PREVENT NEEDLESS RECOMMITS.
+		StrictCharComp => 0    #JWT: 20010313: FORCES USER TO PAD STRING LITERALS W/SPACES IF COMPARING WITH "CHAR" TYPES.
 	    };
 
     $self->{separator} = { Unix  => '/',    Mac => ':',   #JWT: BUGFIX.
@@ -842,6 +843,7 @@ sub define_errors
 sub parse_expression
 {
     my ($self, $query) = @_;
+#print STDERR "-PARSE_EXPRESSION: at 1 query=$query=\n";
     return unless ($query);
     my ($column, @strings, %numopmap, %stropmap, $numops, $strops, $special);
 	my ($colmlist) = join('|',@{$self->{order}});
@@ -888,6 +890,8 @@ $query =~ s/\\\\/\x02/g;    #PROTECT "\\"
 $query =~ s/\\\'|\'\'/\x03/g;   #20000201  #PROTECT "", \", '', AND \'.
 #$query =~ s/\\\"|\"\"/\x04/g;   #REMOVED 20000303.
 
+#print STDERR "-2: query=$query=\n";
+
 my ($i, $j, $j2, $k);
 while (1)
 {
@@ -896,6 +900,8 @@ while (1)
 	$i = ($query =~ s|(\w)\s+like\s+|$1 =^ |i)  unless ($i);
 	if ($i)
 	{
+		#if ($query =~ /(\^\s*["'])([^"\\]*(\\.[^"\\]*)*)/)
+		#if ($query =~ /(\^\s*)(["'])(.*?)\2/)
 		if ($query =~ /([\=\!]\^\s*)(["'])(.*?)\2/)  #20001010
 		{
 			$j = "$1$2";   #EVERYTHING BEFORE THE QUOTE (DELIMITER), INCLUSIVE
@@ -917,6 +923,7 @@ while (1)
 		last;
 	}
 }
+#print STDERR "-3: query=$query=\n";
 	
     #$query =~ s/([!=][~\^])\s*(m)?([^\w;\s])([^\3\\]*(?:\\.[^\3\\]*)*)\3(i)?/
 
@@ -941,6 +948,7 @@ while (1)
 	|e);
 
 	#THIS REGEX HANDLES ALL OTHER LIKE AND PERL "=~" AND "!~" OPERATORS.
+#print STDERR "-4: query=$query=\n";
 
     $query =~ s%([!=][~\^])\s*(m)?(.)([^\3]*?)\3(i)?%
 	           my ($m, $i, $delim, $four, $one) = ($2, $5, $3, $4, $1);
@@ -958,7 +966,8 @@ while (1)
 	$query =~ s/\x03/\'/g;   #RESTORE PROTECTED SINGLE QUOTES HERE.
 	#$query =~ s/\x04/\"/g;   #RESTORE PROTECTED DOUBLE QUOTES HERE.   #REMOVED 20000303.
 	$query =~ s/\x02/\\/g;   #RESTORE PROTECTED SLATS HERE.
-	
+#print STDERR "-6: query=$query=\n";
+
 	for $i (0..$#strings)
 	{
 		$strings[$i] =~ s/\x03/\\\'/g; #RESTORE PROTECTED SINGLE QUOTES HERE.
@@ -972,50 +981,108 @@ while (1)
 		$query = '&' . $i  unless ($i =~ $colmlist);
 	}
 
+#print STDERR "-15: query=$query=\n";
     $query =~ s#\b($column)\s*($numops)\s*\*#$1 $numopmap{$2} \*#go;
     $query =~ s#\b($column)\s*($numops)\s*\'#$1 $numopmap{$2} \'\'#go;
+#print STDERR "-16: query=$query=\n";
     $query =~ s#\b($column)\s*($numops)\s*($colmlist)#$1 $numopmap{$2} $3#go;
     #$query =~ s#\b($column)\s*($numops)\s*($column(?:\(.*?\))?)#$1 $numopmap{$2} $3#go;
     $query =~ s%\b($column\s*(?:\(.*?\))?)\s+is\s+null%$1 eq ''%ig;
+#print STDERR "-17: query=$query=\n";
     $query =~ s%\b($column\s*(?:\(.*?\))?)\s+is\s+not\s+null%$1 ne ''%ig;
     #$query =~ s%\b($column)\s*(?:\(.*?\))?)\s*($numops)\s*CURVAL%$1 $2 &pscolfn($self,$3)%g;
     $query =~ s%($column)\s*($numops)\s*($column\.(?:$psuedocols))%"$1 $2 ".&pscolfn($self,$3)%eg;
+#print STDERR "-19: query=$query=\n";
     $query =~ s%\b($column\s*(?:\(.*?\))?)\s*($numops)\s*($column\s*(?:\(.*?\))?)%
 		my ($one,$two,$three) = ($1,$2,$3);
 		$one =~ s/\s+$//;
+#print STDERR "-20a: 1=$one= 2=$two= 3=$three=\n";
 		if ($one =~ /NUM\s*\(/ || ${$self->{types}}{"\U$one\E"} =~ /$NUMERICTYPES/i)
 		{
 			$two =~ s/^($strops)$/$stropmap{$two}/;
+#print STDERR "-20N: 1=$one= 2=$two= 3=$three= tp=".${$self->{types}}{"\U$one\E"};
+#print "-20N: 1=$one= 2=$two= 3=$three= tp=".${$self->{types}}{"\U$one\E"};
 			"$one $two $three";
 		}
 		else
 		{
+#print "-20C: 1=$1= 2=$2= 3=$3= tp=".${$self->{types}}{"\U$one\E"};
+#print STDERR "-20C: 1=$1= 2=$2= 3=$3= tp=".${$self->{types}}{"\U$one\E"};
 			"$one $numopmap{$two} $three";
 		}
 	 %eg;
+#print STDERR "-21A: query=$query=\n";
 
 # (JWT 8/8/1998) $query =~ s|\b($column)\s+($strops)\s+(\d+)|$1 $stropmap{$2} $3|gio;
 	$query =~ s|\b($column)\s*($strops)\s*(\d+)|$1 $stropmap{$2} $3|gio;
+#print STDERR "-21B: query=$query=\n";
 
-	$query =~ s%\b($column)\s*($strops)\s*(\*\d+)%
+	my $ineqop = '!=';
+	$query =~ s!\b($column)\s*($strops)\s*(\*\d+)!
 		my ($one,$two,$three) = ($1,$2,$3);
 		$one =~ s/\s+$//;
+		my $res;
 		if ($one =~ /NUM\s*\(/ || ${$self->{types}}{"\U$one\E"} =~ /$NUMERICTYPES/i)
 		{
-			$two =~ s/^($strops)$/$stropmap{$two}/;
-			"$one $two $three";
+#print STDERR "\n-21N: BEF: 1=$one= 2=$two= 3=$three= tp=".${$self->{types}}{"\U$one\E"};
+			my ($opno) = undef;    #NEXT 18 LINES ADDED 20010313 TO CAUSE STRING COMPARISENS W/NUMERIC FIELDS TO RETURN ZERO, SINCE PERL NON-NUMERIC STRINGS RETURN ZERO.
+			if ($three =~ /^\*\d+/)
+			{
+				$opno = substr($three,1);
+				$opno = $strings[$opno];
+				$opno =~ s/^\'//;
+				$opno =~ s/\'$//;
+			}
+			else
+			{
+				$opno = $three;
+			}
+#print STDERR "\n-21Nc: opno=$opno=\n";
+			unless ($opno =~ /^[\+\-\d\.][\d\.Ex\+\-\_]*$/)  #ARGUMENT IS A VALID NUMBER.
+			{
+			#	$res = '0';
+			#	$res = '1'  if ($two eq $ineqop);
+#print STDERR "\n-21Nd: AFT: 1=$one= 2=$two= 3=$three= opno=$opno=\n";
+				$res = "$one $two '0'";
+			}
+			else
+			{
+				$two =~ s/^($strops)$/$stropmap{$two}/  unless ($opno eq "0");
+				$res = "$one $two $three";
+#print STDERR "\n-21Ne: AFT: 1=$one= 2=$two= 3=$three= opno=$opno=\n";
+			}
+		}
+		elsif ($self->{StrictCharComp} == 0 && ${$self->{types}}{"\U$one\E"} eq 'CHAR')
+		{
+			my ($opno) = undef;    #NEXT 18 LINES ADDED 20010313 TO CAUSE STRING COMPARISENS W/NUMERIC FIELDS TO RETURN ZERO, SINCE PERL NON-NUMERIC STRINGS RETURN ZERO.
+			if ($three =~ /^\*\d+/)
+			{
+				$opno = substr($three,1);
+				my $opstr = $strings[$opno];
+				$opstr =~ s/^\'//;
+				$opstr =~ s/\'$//;
+				$strings[$opno] = "'" . sprintf(
+							'%-'.${$self->{lengths}}{"\U$one\E"}.'s',
+							$opstr) . "'";
+			}
+#print STDERR "-21C: 1=$one= 2=$two= 3=$three= tp=".${$self->{types}}{"\U$one\E"};
+			$res = "$one $two $three";
 		}
 		else
 		{
-			"$one $two $three";
+#print STDERR "-21V: 1=$one= 2=$two= 3=$three= tp=".${$self->{types}}{"\U$one\E"};
+			$res = "$one $two $three";
 		}
-		%eg;
+		$res;
+		!eg;
 
+#print STDERR "-22 query=$query=\n";
 	#NOTE!:  NEVER USE ANY VALUE OF $special AS A COLUMN NAME IN YOUR TABLES!!
 	#20000224 ADDED "\b" AFTER "$special)" 5 LINES BELOW!
 	$query =~ s!\b(($colmlist))\b!
                    my $match = $1;
 						$match =~ tr/a-z/A-Z/;
+#print "-23: MATCH=$match=\n";
                    ($match =~ /\b(?:$special)\b/io) ? "\L$match\E"    : 
                                                     "\$_->{$match}"
                !gei;
@@ -1024,10 +1091,11 @@ while (1)
     $query =~ s#\|\|#or#g;
     $query =~ s#&&#and#g;
 
+	$query =~ s|(\d+)\s*($strops)\s*(\d+)|$1 $stropmap{$2} $3|gio;   #ADDED 20010313 TO MAKE "1=0" CONDITION EVAL WO/ERROR.
     $query =~ s|\*(\d+)|$strings[$1]|g;
     
 	#THIS REGEX EVALS USER-FUNCTION CALLS FOLLOWING "=~" OR "!~".
-	
+#print "-25: query=$query=\n";
 	$query =~ s@([!=][~\^])\s*m\&([a-zA-Z_]+[^&]*)\&@
 			my ($one, $two) = ($1, $2);
 			
@@ -1096,7 +1164,7 @@ sub parse_columns
 		$values->{$i} =~ s/\r /\r/g;    #20000108: FIX LFS PREV. CONVERTED TO SPACES!
 		$values->{$i} = "''"  unless ($values->{$i} =~ /\S/);
 	}
-    local $SIG{'__WARN__'} = sub { $status = -510 };
+    local $SIG{'__WARN__'} = sub { $status = -510; $errdetails = "$_[0] at ".__LINE__ };
     local $^W = 0;
 	local ($_);
 $| = 1;
@@ -1108,12 +1176,18 @@ $| = 1;
 	$rowcnt = 0;
 
 	my (@these_results);
-$fieldregex = $self->{fieldregex};
+	$fieldregex = $self->{fieldregex};
     for ($loop=0; $loop < scalar @{ $self->{records} }; $loop++)
 	{
 		next unless (defined $self->{records}->[$loop]);    #JWT: DON'T RETURN BLANK DELETED RECORDS.
 		$_ = $self->{records}->[$loop];
+#print "->>>>> condition=$condition=\n";
+#foreach my $xxx (keys(%{$_})) {print STDERR "-value($xxx) =$_->{$xxx}=\n";};
+#print STDERR "->>>>> condition=$condition=\n";
+		$@ = '';
 		if ( !$condition || (eval $condition) ) {
+#print "-- CONDITION RETURNED TRUE! res=$@=\n";
+#print STDERR "-!!!!!- CONDITION RETURNED TRUE!\n";
 		    if ($command eq 'select')
 		    {
 				if ($fields)
@@ -1191,7 +1265,8 @@ NOMATCHED1:
 					$rawvalue =~ s/^\'(.*)\'\s*$/$1/  if ($values->{$jj} =~ /^\'/);
 				}
 					
-				if (${$self->{types}}{$jj} =~ /$NUMERICTYPES/)
+				#if (${$self->{types}}{$jj} =~ /$NUMERICTYPES/)  #CHGD TO NEXT LINE 20010313.
+				if (length($rawvalue) > 0 && ${$self->{types}}{$jj} =~ /$NUMERICTYPES/)
 				{
 					$k = sprintf(('%.'.${$self->{scales}}{$jj}.'f'), 
 							$rawvalue);
@@ -1219,7 +1294,8 @@ NOMATCHED1:
 							'%-'.${$self->{lengths}}{$jj}.'s',
 							$rawvalue) . "'";
 				}
-				elsif (${$self->{types}}{$jj} !~ /$NUMERICTYPES/)
+				#elsif (${$self->{types}}{$jj} !~ /$NUMERICTYPES/)  #CHGD. TO NEXT 20010313.
+				elsif (!length($rawvalue) || ${$self->{types}}{$jj} !~ /$NUMERICTYPES/)
 				{
 					$values->{$jj} = "'" . $rawvalue . "'";
 				}
@@ -1229,8 +1305,10 @@ NOMATCHED1:
 				}
 			}
 			map { $code .= qq|\$_->{'$_'} = $values->{$_};| } @columns;
+#print "-PARSE_COLUMNS: eval=$code=\n";
 	                eval $code;
 					return (-517)  if ($@);
+#print "-PARSE_COLUMNS: got thru eval!\n";
 		    } elsif ($command eq 'add') {
 			$_->{$single} = '';   #ORACLE DOES NOT SET EXISTING RECORDS TO DEFAULT VALUE!
 	
@@ -1238,6 +1316,14 @@ NOMATCHED1:
 			delete $_->{$single};
 		    }
 			++$rowcnt;
+		}
+		elsif ($@)   #ADDED 20010313 TO CATCH SYNTAX ERRORS.
+		{
+			$errdetails = "Condition failed ($@) in condition=$condition!";
+#print STDERR "\n-!!!!!!!!!!! CONDITION FAILED, AT=$@=\n";
+			return -503  if ($command eq 'select');
+			return -505  if ($command eq 'delete');
+			return -504;
 		}
     }
 
@@ -1279,7 +1365,8 @@ NOMATCHED1:
 						$SA[$i] .= sprintf('%'.${$self->{lengths}}{$j}.${$self->{scales}}{$j}.'e',${$results}[$_]->[$k]);
 						#$SA[$i] .= $self->{records}->[$_]->{$j} . $mysep;
 					}
-					elsif (${$self->{types}}{$j} =~ /$NUMERICTYPES/)
+					#elsif (${$self->{types}}{$j} =~ /$NUMERICTYPES/)  #CHGD TO NEXT LINE 20010313.
+					elsif (length (${$results}[$_]->[$k]) > 0 && ${$self->{types}}{$j} =~ /$NUMERICTYPES/)
 					{
 						#$SA[$i] .= sprintf('%'.${$self->{lengths}}{$j}.'s',$self->{records}->[$_]->{$j});
 						$SA[$i] .= sprintf('%'.${$self->{lengths}}{$j}.${$self->{scales}}{$j}.'f',${$results}[$_]->[$k]);
@@ -1313,8 +1400,8 @@ NOMATCHED1:
 			}
 			##???@$results = ($i,@$results);
 		}
-	unshift (@$results, $rowcnt);
-return $results;
+		unshift (@$results, $rowcnt);
+		return $results;
     }
 }
 
@@ -1395,6 +1482,8 @@ sub select
     my ($i, @l, $regex, $path, $columns, $table, $extra, $condition, 
 			$values_or_error);
 	my (@ordercols) = ();
+#print STDERR "-select: query=$query=\n";
+#print STDERR "-select: query=$query=\n";
     $regex = $self->{_select};
     $path  = $self->{path};
 $fieldregex = $self->{fieldregex};
@@ -1409,8 +1498,9 @@ $fieldregex = $self->{fieldregex};
                     ($path)(.*)$/iox)
 	{           
 		($columns, $table, $extra) = ($1, $2, $3);
-	
-		if ($columns =~ /^table_name$/i && $table =~ /^user_tables$/i)  #JWT: FETCH TABLE NAMES!
+#print STDERR "-select, at 2: field names only, extra=$extra=\n";
+		#if ($columns =~ /^table_name$/i && $table =~ /^user_tables$/i)  #JWT: FETCH TABLE NAMES! - CHANGED TO NEXT LINE 20010301 TO FIX BUG.
+		if ($columns =~ /^table_name\s*$/i && $table =~ /^user_tables$/i)  #JWT: FETCH TABLE NAMES!
 		{
 			$full_path = $self->{directory};
 			$full_path .= $self->{separator}->{ $self->{platform} }  
@@ -1448,13 +1538,22 @@ END_CODE
 			$values_or_error = [];
 			for ($i=0;$i<=$#l;$i++)	{
 				#chomp($l[$i]);   #NO LONGER NEEDED 20000228
-				$l[$i] =~ s/${full_path}(.*?)$self->{ext}/$1/;
-				$l[$i] =~ s/$self->{ext}$//;  #ADDED 20000418 - FORCE THIS!
+				if ($^O =~ /Win/i)   #COND. ADDED 20010321 TO HANDLE WINDOZE FILENAMES (CAN BE UPPER & OR LOWER)!
+				{
+					$l[$i] =~ s/${full_path}(.*?)$self->{ext}/$1/i;
+					$l[$i] =~ s/$self->{ext}$//i;  #ADDED 20000418 - FORCE THIS!
+				}
+				else
+				{
+					$l[$i] =~ s/${full_path}(.*?)$self->{ext}/$1/;
+					$l[$i] =~ s/$self->{ext}$//;  #ADDED 20000418 - FORCE THIS!
+				}
 				push (@$values_or_error,[$l[$i]]);
 			}
 			unshift (@$values_or_error, ($#l+1));
 			return $values_or_error;
 		}
+#print STDERR "-select: 2a\n";
 		$thefid = $table;
 		$self->check_for_reload ($table) || return (-501);
 		if ($extra =~ s/([\s|\)]+)order\s+by\s*(.*)/$1/i)
@@ -1469,8 +1568,10 @@ END_CODE
 				$ordercols[$i] =~ s/[\(\)]+//g;
 			}
 		}
+#print STDERR "-select, at 2c: extra=$extra=\n";
 		if ($extra =~ /^\s+where\s*(.+)$/i)
 		{
+#print STDERR "-select, at 2d: extra=$1=\n";
 		
 		    $condition = $self->parse_expression ($1);
 		}
@@ -1490,6 +1591,7 @@ END_CODE
 			(\w+)(.*)$/iox)
     {
 		my ($column_stuff, $table, $extra) = ($1, $2, $3);
+#print STDERR "-select, at 3: field names only, extra=$extra=\n";
     		my (@fields) = ();
     		my ($fnname, $found_parin, $parincnt);
 
@@ -1575,8 +1677,10 @@ END_CODE
 				$ordercols[$i] =~ s/[\(\)]+//g;
 			}
 		}
+#print STDERR "-select, at 3b: extra=$extra=\n";
 		if ($extra =~ /^\s+where\s*(.+)$/i)
 		{
+#print STDERR "-select, at 3c: extra=$extra=\n";
 		    $condition = $self->parse_expression ($1);
 		}
 		$columns =~ tr/a-z/A-Z/;
@@ -1598,7 +1702,6 @@ sub update
     my ($i, $path, $regex, $table, $extra, $condition, $all_columns, 
 	$columns, $status);
 	my ($psuedocols) = "CURVAL|NEXTVAL";
-
     ##++
     ##  Hack to allow parenthesis to be escaped!
     ##--
@@ -1629,7 +1732,6 @@ sub update
 	#$extra =~ s/[\s\)]+$//;
 	$extra =~ s/^\s+//;  #STRIP OFF SURROUNDING SPACES.
 	$extra =~ s/\s+$//;
-
 	#NOW TEMPORARILY PROTECT COMMAS WITHIN (), IE. FN(ARG1,ARG2).
 
 	$column = $self->{column};
@@ -1663,11 +1765,12 @@ sub update
 	$extra = $expns[$#expns];    #EXTRACT WHERE-CLAUSE, IF ANY.
 	$condition = ($extra =~ s/(.*)where(.+)$/where$1/i) ? $2 : '';
 	$condition =~ s/\s+//;
-	$condition =~ s/^\((.*)\)$/$1/g;
+	####$condition =~ s/^\((.*)\)$/$1/g;  #REMOVED 20010313 SO "WHERE ((COND) OP (COND) OP (COND)) WOULD WORK FOR DBIX-RECORDSET. (SELECT APPEARS TO WORK WITHOUT THIS).
 	#$expns[$#expns] =~ s/where(.+)$//i;
 	$expns[$#expns] =~ s/\s*where(.+)$//i;   #20000108 REP. PREV. LINE 2FIX BUG IF LAST COLUMN CONTAINS SINGLE QUOTES.
 	$column = $self->{column};
 	$condition = $self->parse_expression ($condition);
+	$columns = '';   #ADDED 20010228. (THESE CHGS FIXED INCORRECT ORDER BUG FOR "TYPE", "NAME", ETC. LISTS IN UPDATES).
 	for ($i=0;$i<=$#expns;$i++)  #EXTRACT FIELD NAMES AND 
 	                             #VALUES FROM EACH EXPRESSION.
 	{
@@ -1677,6 +1780,7 @@ sub update
 
 			$val = &pscolfn($self,$val)  if ($val =~ "$column\.$psuedocols");
 			$var =~ tr/a-z/A-Z/;
+			$columns .= $var . ',';   #ADDED 20010228.
 			$val =~ s|%\0(\d+): |pack("C",$1)|ge;
 			$all_columns->{$var} = $val;
 			$all_columns->{$var} =~ s/\x02/\\\\/g;
@@ -1686,8 +1790,9 @@ sub update
 		!e;
 	}
 
-	$columns   = join (',', keys %$all_columns);
-	$columns =~ tr/a-z/A-Z/;   #JWT
+	#$columns   = join (',', keys %$all_columns);  #NEXT 2 CHGD TO 3RD LINE 20010228.
+	#$columns =~ tr/a-z/A-Z/;   #JWT
+	chop($columns);   #ADDED 20010228.
 	#$condition = ($extra =~ /^\s*where\s+(.+)$/i) ? $1 : '';
 
 	#$self->check_for_reload ($table) || return (-501);
@@ -1756,7 +1861,7 @@ sub delete_rows
 {
     my ($self, $condition) = @_;
     my ($status, $loop);
-    local $SIG{'__WARN__'} = sub { $status = -510 };
+    local $SIG{'__WARN__'} = sub { $status = -510; $errdetails = "$_[0] at ".__LINE__  };
     local $^W = 0;
 
     #$status = 1;
@@ -1880,7 +1985,8 @@ sub create
 			{
 				$value = shift(@values);
 				my ($rawvalue);
-				if ($tp =~ /$NUMERICTYPES/)
+				#if ($tp =~ /$NUMERICTYPES/)  #CHGD TO NEXT LINE 20010313.
+				if (length($value) > 0 && $tp =~ /$NUMERICTYPES/)
 				{
 					$rawvalue = sprintf(('%.'.$scale.'f'), 
 							$value);
@@ -2093,7 +2199,8 @@ sub alter
 				if (defined $self->{defaults}->{$fd})
 				{
 					my ($val);
-					if (${$self->{types}}{$fd} =~ /$NUMERICTYPES/)
+					#if (${$self->{types}}{$fd} =~ /$NUMERICTYPES/)  #CHGD TO NEXT LINE 20010313.
+					if (length($self->{defaults}->{$fd}) > 0 && ${$self->{types}}{$fd} =~ /$NUMERICTYPES/)
 					{
 						$val = sprintf(('%.'.${$self->{scales}}{$fd}.'f'),
 								$self->{defaults}->{$fd});
@@ -2201,7 +2308,7 @@ sub insert
 {
     my ($self, $query) = @_;
     my ($i, $path, $table, $columns, $values, $status);
-
+#print "-INSERT: query=$query=\n";
     $path = $self->{path};
     if ($query =~ /^insert\s+into\s+                            # Keyword
                    ($path)\s*                                  # Table
@@ -2304,7 +2411,7 @@ sub insert_data
     @columns = split (/,/, $column_string);
     #JWT: @values  = $self->quotewords (',', 0, $value_string);
 
-    if ($#columns = $#values) {
+    if ($#columns == $#values) {
     
 	my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
 	my ($matchcnt) = 0;
@@ -2339,7 +2446,8 @@ sub insert_data
 			{
 				$v = $self->{defaults}->{$column};
 			}
-			if (${$self->{types}}{$column} =~ /$NUMERICTYPES/)
+			#if (${$self->{types}}{$column} =~ /$NUMERICTYPES/)  #CHGD TO NEXT LINE 20010313.
+			if (length($v) > 0 && ${$self->{types}}{$column} =~ /$NUMERICTYPES/)
 			{
 				$hash->{$column} = sprintf(('%.'.${$self->{scales}}{$column}.'f'), $v);
 			}

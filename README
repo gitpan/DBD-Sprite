@@ -367,9 +367,31 @@ Metadata
 	sprite_dbrdelim
 		Record delimiter string in use for the database.
 
-	SPRITE_HOME
-		Environment variable specifying a path to search for Sprite databases 
-		(*.sdb) files.
+
+    The following are environment variables specifically recognized by Sprite.
+
+    SPRITE_HOME
+        Environment variable specifying a path to search for Sprite
+        databases (*.sdb) files.
+
+
+    The following are Sprite-specific options which can be set when connecting.
+
+    sprite_CaseTableNames
+        By default, table names are case-insensitive (as they are in Oracle),
+        to make table names case-sensitive (as in MySql), so that one could
+        have two separate tables such as "test" and "TEST", set this option
+        to 1.
+
+    sprite_StrictCharComp  (NEW!)
+        CHAR fields are always right-padded with spaces to fill out
+        the field.  Old (pre 5.17) Sprite behaviour was to require the
+        padding be included in literals used for testing equality in
+        "where" clauses.    I discovered that Oracle and some other databases
+        do not require this when testing DBIx-Recordset, so Sprite will
+        automatically right-pad literals when testing for equality.
+        To disable this and force the old behavior, set this option to 1.
+
 
 Driver private methods
 
@@ -433,8 +455,9 @@ TODO
 
     Joins
         The current version of the module works with single table SELECTs
-        only.  This will be a trick, since the underlying statement object 
-        in JSprite is bound to a single file, so it may be a long wait!
+        only.  This will be a trick, since the underlying statement object
+        in JSprite is bound to a single file, I have some ideas and am
+        starting to seriously look into this.  Stay tuned!
 
 	Additional Oracle-ish functions built-in.  The currently-supported ones 
 		are "SYSTIME", "NUM", and "NULL".  "NUM" does nothing, "NULL" returns 

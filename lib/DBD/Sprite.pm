@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.16';
+$VERSION = '0.19';
 
 # Preloaded methods go here.
 
@@ -72,7 +72,6 @@ sub connect {
 		'user' => $dbuser,
 		'dbpswd' => $dbpswd
     };
-
     #if (!defined($this = DBI::_new_dbh($drh, {
     my $this = DBI::_new_dbh($drh, {
     		'Name' => $dbname,
@@ -82,68 +81,71 @@ sub connect {
     
     # Call Sprite Connect function
     # and populate internal handle data.
-	$ENV{SPRITE_HOME} ||= '';
-	unless (open(DBFILE, "<$ENV{SPRITE_HOME}/${dbname}.sdb"))
+	if ($this)   #ADDED 20010226 TO FIX BAD ERROR MESSAGE HANDLING IF INVALID UN/PW ENTERED.
 	{
-		unless (open(DBFILE, "<${dbname}.sdb"))
+		$ENV{SPRITE_HOME} ||= '';
+		unless (open(DBFILE, "<$ENV{SPRITE_HOME}/${dbname}.sdb"))
 		{
-			unless (open(DBFILE, "<$ENV{HOME}/${dbname}.sdb"))
+			unless (open(DBFILE, "<${dbname}.sdb"))
 			{
-				DBI::set_err($drh, -1, "No such database ($dbname)!");
-				return undef;
+				unless (open(DBFILE, "<$ENV{HOME}/${dbname}.sdb"))
+				{
+					DBI::set_err($drh, -1, "No such database ($dbname)!");
+					return undef;
+				}
 			}
 		}
-	}
-	my (@dbinputs) = <DBFILE>;
-	foreach $i (0..$#dbinputs)
-	{
-		chomp ($dbinputs[$i]);
-	}
-	my ($inputcnt) = $#dbinputs;
-	for ($i=0;$i<=$inputcnt;$i+=5)  #SHIFT OFF LINES UNTIL RIGHT USER FOUND.
-	{
-		last  if ($dbinputs[1] eq $dbuser);
-		for ($j=0;$j<=4;$j++)
+		my (@dbinputs) = <DBFILE>;
+		foreach $i (0..$#dbinputs)
 		{
-			shift (@dbinputs);
+			chomp ($dbinputs[$i]);
 		}
-	}
-	if ($dbinputs[1] eq $dbuser)
-	{
-		#if ($dbinputs[2] eq crypt($dbpswd, substr($dbuser,0,2)))
-		my ($crypted);
-		eval { $crypted = crypt($dbpswd, substr($dbuser,0,2)); };
-		if ($dbinputs[2] = $crypted || $@ =~ /excessive paranoia/)
+		my ($inputcnt) = $#dbinputs;
+		for ($i=0;$i<=$inputcnt;$i+=5)  #SHIFT OFF LINES UNTIL RIGHT USER FOUND.
 		{
-			++$DBD::Sprite::dbcnt;
-			$this->STORE('sprite_dbname',$dbname);
-			$this->STORE('sprite_dbuser',$dbuser);
-			$this->STORE('sprite_dbpswd',$dbpswd);
-			close (DBFILE);
-			$this->STORE('sprite_autocommit',0);
-			$this->STORE('sprite_SpritesOpen',{});
-			my ($t) = $dbinputs[0];
-			$t =~ s#(.*)/.*#$1#;
-			if ($dbinputs[0] =~ /(.*)(\..*)/)
+			last  if ($dbinputs[1] eq $dbuser);
+			for ($j=0;$j<=4;$j++)
 			{
-				$this->STORE('sprite_dbdir', $t);
-				$this->STORE('sprite_dbext', $2);
+				shift (@dbinputs);
 			}
-			else
+		}
+		if ($dbinputs[1] eq $dbuser)
+		{
+			#if ($dbinputs[2] eq crypt($dbpswd, substr($dbuser,0,2)))
+			my ($crypted);
+			eval { $crypted = crypt($dbpswd, substr($dbuser,0,2)); };
+			if ($dbinputs[2] eq $crypted || $@ =~ /excessive paranoia/)
 			{
-				$this->STORE('sprite_dbdir', $dbinputs[0]);
-				$this->STORE('sprite_dbext', '.stb');
+				++$DBD::Sprite::dbcnt;
+				$this->STORE('sprite_dbname',$dbname);
+				$this->STORE('sprite_dbuser',$dbuser);
+				$this->STORE('sprite_dbpswd',$dbpswd);
+				close (DBFILE);
+				$this->STORE('sprite_autocommit',0);
+				$this->STORE('sprite_SpritesOpen',{});
+				my ($t) = $dbinputs[0];
+				$t =~ s#(.*)/.*#$1#;
+				if ($dbinputs[0] =~ /(.*)(\..*)/)
+				{
+					$this->STORE('sprite_dbdir', $t);
+					$this->STORE('sprite_dbext', $2);
+				}
+				else
+				{
+					$this->STORE('sprite_dbdir', $dbinputs[0]);
+					$this->STORE('sprite_dbext', '.stb');
+				}
+				for (my $i=0;$i<=$#dbinputs;$i++)
+				{
+					$dbinputs[$i] =~ /^(.*)$/;
+					$dbinputs[$i] = $1;
+				}
+				$this->STORE('sprite_dbfdelim', eval("return(\"$dbinputs[3]\");") || '::');
+				$this->STORE('sprite_dbrdelim', eval("return(\"$dbinputs[4]\");") || "\n");
+				$this->STORE('sprite_attrhref', $attr);
+				$this->STORE('AutoCommit', ($attr->{AutoCommit} || 0));
+				return $this;
 			}
-			for (my $i=0;$i<=$#dbinputs;$i++)
-			{
-				$dbinputs[$i] =~ /^(.*)$/;
-				$dbinputs[$i] = $1;
-			}
-			$this->STORE('sprite_dbfdelim', eval("return(\"$dbinputs[3]\");") || '::');
-			$this->STORE('sprite_dbrdelim', eval("return(\"$dbinputs[4]\");") || "\n");
-			$this->STORE('sprite_attrhref', $attr);
-			$this->STORE('AutoCommit', ($attr->{AutoCommit} || 0));
-			return $this;
 		}
 	}
 	close (DBFILE);
@@ -288,6 +290,7 @@ sub prepare
 		#$myspriteref->{CaseTableNames} = $resptr->{sprite_attrhref}->{CaseTableNames};
 		#ABOVE CHANGED TO BELOW(1 LINE) 20001010!
 		$myspriteref->{CaseTableNames} = $resptr->{sprite_attrhref}->{sprite_CaseTableNames};
+		$myspriteref->{StrictCharComp} = $resptr->{sprite_attrhref}->{sprite_StrictCharComp};
 	}
 	$myspriteref->{LongTruncOk} = $resptr->FETCH('LongTruncOk');
 	my ($silent) = $resptr->FETCH('PrintError');
@@ -296,7 +299,13 @@ sub prepare
 	#SET UP STMT. PARAMETERS.
 	
 	$csr->STORE('sprite_params', []);
-	$sqlstr =~ s/([\'\"])([^$1]*?)\?([^$1]*?$1)/$1$2\x02$3/g;  #PROTECT ? IN QUOTES (DATA)!
+	#$sqlstr =~ s/([\'\"])([^$1]*?)\?([^$1]*?$1)/$1$2\x02$3/g;  #PROTECT ? IN QUOTES (DATA)!
+	#PREV. LINE CHGD TO NEXT 5 20010312 TO FIX!
+	$sqlstr =~ s/([\'\"])([^\1]*?)\1/
+			my ($quote) = $1;
+			my ($str) = $2;
+			$str =~ s|\?|\x02|g;   #PROTECT COMMAS IN QUOTES.
+			"$quote$str$quote"/eg;
 	my $num_of_params = ($sqlstr =~ tr/\?//);
 	$sqlstr =~ s/\x02/\?/g;
 	$csr->STORE('NUM_OF_PARAMS', $num_of_params);	
@@ -410,6 +419,58 @@ sub table_info
 	$sth;
 }
 
+sub type_info_all  #ADDED 20010312, BORROWED FROM "Oracle.pm".
+{
+	my ($dbh) = @_;
+	my $names =
+	{
+		TYPE_NAME		=> 0,
+				DATA_TYPE		=> 1,
+				COLUMN_SIZE		=> 2,
+				LITERAL_PREFIX	=> 3,
+				LITERAL_SUFFIX	=> 4,
+				CREATE_PARAMS		=> 5,
+				NULLABLE		=> 6,
+				CASE_SENSITIVE	=> 7,
+				SEARCHABLE		=> 8,
+				UNSIGNED_ATTRIBUTE	=> 9,
+				FIXED_PREC_SCALE	=>10,
+				AUTO_UNIQUE_VALUE	=>11,
+				LOCAL_TYPE_NAME	=>12,
+				MINIMUM_SCALE		=>13,
+				MAXIMUM_SCALE		=>14,
+	}
+	;
+	# Based on the values from Oracle 8.0.4 ODBC driver
+	my $ti = [
+	$names,
+			[ 'LONG RAW', -4, '2147483647', '\'', '\'', undef, 1, '0', '0',
+			undef, '0', undef, undef, undef, undef
+	],
+			[ 'RAW', -3, 255, '\'', '\'', 'max length', 1, '0', 3,
+			undef, '0', undef, undef, undef, undef
+	],
+			[ 'LONG', -1, '2147483647', '\'', '\'', undef, 1, 1, '0',
+			undef, '0', undef, undef, undef, undef
+	],
+			[ 'CHAR', 1, 255, '\'', '\'', 'max length', 1, 1, 3,
+			undef, '0', '0', undef, undef, undef
+	],
+			[ 'NUMBER', 3, 38, undef, undef, 'precision,scale', 1, '0', 3,
+			'0', '0', '0', undef, '0', 38
+	],
+			[ 'DOUBLE', 8, 15, undef, undef, undef, 1, '0', 3,
+			'0', '0', '0', undef, undef, undef
+	],
+			[ 'DATE', 11, 19, '\'', '\'', undef, 1, '0', 3,
+			undef, '0', '0', undef, '0', '0'
+			],
+			[ 'VARCHAR2', 12, 2000, '\'', '\'', 'max length', 1, 1, 3,
+			undef, '0', '0', undef, undef, undef
+	]
+	];
+	return $ti;
+}
 sub tables   #CONVENIENCE METHOD FOR FETCHING LIST OF TABLES IN THE DATABASE.
 {
 	my($dbh) = @_;		# XXX add qualification
@@ -477,12 +538,14 @@ sub bind_param
 	if ($type)
 	{
 		my $dbh = $sth->{Database};
-		$val = $dbh->quote($sth, $type);
+		$val = $dbh->quote($val, $type);
+		$val =~ s/^\'//;
+		$val =~ s/\'$//;
 	}
 	my $params = $sth->FETCH('sprite_params');
 	$params->[$pNum-1] = $val;
 
-	${$sth->{bindvars}}[($pNum-1)] = $val;   #FOR SPRITE.
+	#${$sth->{bindvars}}[($pNum-1)] = $val;   #FOR SPRITE. #REMOVED 20010312 (LVALUE NOT FOUND ANYWHERE ELSE).
 
 	$sth->STORE('sprite_params', $params);
 	return 1;
@@ -521,7 +584,6 @@ sub execute
 
 	my (@resv) = $spriteref->sql($sqlstr);
 	#!!! HANDLE SPRITE ERRORS HERE (SEE SPRITE.PM)!!!
-	
 	my ($retval) = undef;
 	if ($#resv < 0)          #GENERAL ERROR!
 	{
@@ -549,7 +611,7 @@ sub execute
 	}
 	
 	#EVERYTHING WORKED, SO SAVE SPRITE RESULT (# ROWS) AND FETCH FIELD INFO.
-	
+
 	 if ($retval)
 	 {
 		$sth->{'driver_rows'} = $retval; # number of rows
@@ -683,6 +745,9 @@ sub FETCH
 	$dbh->SUPER::FETCH($attr);
 }
 
+sub DESTROY   #ADDED 20010221
+{
+}
 
 1;
 
@@ -1078,6 +1143,7 @@ I<Return Value>
         bind_param_inout
         CursorName
 
+
     In addition to the DBI attributes, you can use the following dbh
     attributes.  These attributes are read-only after "connect".
 
@@ -1095,10 +1161,31 @@ I<Return Value>
 		
 	sprite_dbrdelim
 		Record delimiter string in use for the database.
-		
+
+
+	The following are environment variables specifically recognized by Sprite.
+
 	SPRITE_HOME
 		Environment variable specifying a path to search for Sprite 
 		databases (*.sdb) files.
+
+
+	The following are Sprite-specific options which can be set when connecting.
+
+	sprite_CaseTableNames
+		By default, table names are case-insensitive (as they are in Oracle), 
+		to make table names case-sensitive (as in MySql), so that one could 
+		have two separate tables such as "test" and "TEST", set this option 
+		to 1.
+
+	sprite_StrictCharComp  (NEW!)
+		CHAR fields are always right-padded with spaces to fill out 
+		the field.  Old (pre 5.17) Sprite behaviour was to require the 
+		padding be included in literals used for testing equality in 
+		"where" clauses. 	I discovered that Oracle and some other databases 
+		do not require this when testing DBIx-Recordset, so Sprite will 
+		automatically right-pad literals when testing for equality.  
+		To disable this and force the old behavior, set this option to 1.
 
 	
 =head1 DRIVER PRIVATE METHODS
@@ -1172,7 +1259,8 @@ I<Return Value>
     Joins
         The current version of the module works with single table SELECTs
         only.  This will be a trick, since the underlying statement object 
-        in JSprite is bound to a single file, so it may be a long wait!
+        in JSprite is bound to a single file, I have some ideas and am 
+        starting to seriously look into this.  Stay tuned!
 
 	Additional Oracle-ish functions built-in.  The currently-supported ones 
 		are "SYSTIME", "NUM", and "NULL".  "NUM" does nothing, "NULL" returns 
@@ -1193,4 +1281,3 @@ I<Return Value>
 	JSprite(3), DBI(3), perl(1)
 
 =cut
-

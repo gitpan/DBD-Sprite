@@ -6,8 +6,8 @@ $dbname = shift (@ARGV) || prompt("Database name");
 open (SDB, ">>${dbname}.sdb")  || die "Could not open database \"${dbname}.sdb\"!\n";
 
 if ($ARGV[0])
-{	
-	$cryptedpswd = crypt($ARGV[0], substr($ARGV[0],0,2));
+{
+	$cryptedpswd = crypt($ARGV[1], substr($ARGV[0],0,2));
 	print SDB <<END_REC;
 $ARGV[2]/*$ARGV[3]
 $ARGV[0]
@@ -29,12 +29,11 @@ else
 		$dbpath =~ s#/$##;	
 		$dbext  = prompt("Table file extension (default .stb)");
 		$dbext = '.stb'  unless ($dbext);
-		$rdelim = prompt("Record delimiter (default \\n)");
-		$rdelim = '\n'  unless ($rdelim);
+		$rdelim = prompt("Record delimiter (default \\r\\n)");
+		$rdelim = '\r\n'  unless ($rdelim);
 		$fdelim = prompt("Field delimiter (default ::)");
 		$fdelim = '::'  unless ($fdelim);
-		$cryptedpswd = crypt($dbuser, substr($dbuser,0,2));
-		
+		$cryptedpswd = crypt($dbpswd, substr($dbuser,0,2));
 		print SDB <<END_REC;
 $dbpath/*$dbext
 $dbuser
