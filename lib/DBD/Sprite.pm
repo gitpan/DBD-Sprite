@@ -17,7 +17,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.43';
+$VERSION = '0.44';
 
 # Preloaded methods go here.
 
@@ -135,7 +135,9 @@ sub connect {
 				eval "\%dfltattr = ($dfltattrs)";
 				foreach my $j (keys %dfltattr)
 				{
-					$attr->{$j} = $dfltattr{$j};
+					#$attr->{$j} = $dfltattr{$j};  #CHGD. TO NEXT 20030207
+					$attr->{$j} = $dfltattr{$j}  unless (defined $attr->{$j});
+#print "-attr($j) =$attr->{$j}=  dflt=$dfltattr{$j}=\n";
 				}
 				last;
 			}
@@ -182,7 +184,7 @@ sub connect {
 				$this->STORE('sprite_attrhref', $attr);
 				$this->STORE('AutoCommit', ($attr->{AutoCommit} || 0));
 
-				$this->STORE('sprite_',($attr->{AutoCommit} || 0));
+				$this->STORE('sprite_autocommit',($attr->{AutoCommit} || 0));
 
 				#NOTE:  "PrintError" and "AutoCommit" are ON by DEFAULT!
 				#I KNOW OF NO WAY TO DETECT WHETHER AUTOCOMMIT IS SET BY 
@@ -299,6 +301,8 @@ sub prepare
 {
 	my ($resptr, $sqlstr, $attribs) = @_;
 	local ($_);
+#print "-prepare: attr=".join('|',keys(%$attribs))."= vals=".join('|',values(%$attribs))."=\n";
+#print "-???0- cfn=".$resptr->{sprite_attrhref}->{sprite_CaseFieldNames}."=\n";
 	#$sqlstr =~ s/\n/ /g;  #REMOVED 20011107.
 	
 	DBI::set_err($resptr, 0, '');
@@ -881,7 +885,7 @@ __END__
 
 		Jim Turner
 		
-        Email: jim.turner@lmco.com
+        Email: turnerjw@wwol.com
 
     All rights reserved.
 
@@ -1296,7 +1300,7 @@ I<Return Value>
 		By default, field names are case-insensitive (as they are in Oracle), 
 		to make field names case-sensitive, so that one could 
 		have two separate fields such as "test" and "TEST", set this option 
-		to 1.
+		to 1.  The default is 1 (case-sensitive) if XML.
 
 	sprite_StrictCharComp  (NEW!)
 		CHAR fields are always right-padded with spaces to fill out 

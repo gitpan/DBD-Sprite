@@ -235,17 +235,12 @@ Revision history for Perl extension DBD::Sprite.
 	  The former are incremented by a call to "sequencename".NEXTVAL in a query, 
 	  the latter are incremented by inserting NULL into a "AUTONUMBER" field 
 	  in an "INSERT" query.
-0.43	 Thu Oct 24
-	- Fixed problem with error-handling with DBI when DBI->connect() fails.
-	  Sprite now calls "warn" if "PrintError" is in effect and returns error 
-	  code and string separated by a colon in "$_", if DBI->connect() fails. 
-	  This is due to DBI::set_err() failing when no DBI handle yet created. 
-	- Fixed "create table" to now actually create an XML table when in an XML 
-	  database (previously new tables were always created in text format by 
-	  very old code that predated the XML option.  It now calls "write_file()" 
-	  via "commit()" as it should and as "alter table" does.  Thanks to 
-	  Roland Bauer for catching this embarrassing omission.  I guess I had 
-	  never actually created a "new" XML table, I had just used "sprite_write" 
-	  and sql.pl to change my existing text tables to the new XML format.
-	- Added code to "drop()" (drop table) function to make sure no dangling 
-	  data is left in memory from the dropped table.
+0.44	 Thu Feb 20
+	- Fixed bug that occasionally trashed field names returned in $sth->{NAMES} 
+	  (caught by me).
+	- Fixed default attribute definition order -- Attributes specified in 
+	  the database definition file (databasename.sdb) overrode those specified 
+	  in the $dbh->connect() statement.  This has now been properly reversed 
+	  (caught by me).
+	- Fixed glitch in Makefile.PL (caught by Gabor Szabo) which caused it not 
+	  to build in Win2000/ActivePerl and nmake.

@@ -464,7 +464,7 @@ eval {require 'OraSpriteFns.pl';};
 use vars qw ($VERSION $LOCK_SH $LOCK_EX);
 ##--
 
-$JSprite::VERSION = '5.43';
+$JSprite::VERSION = '5.44';
 $JSprite::LOCK_SH = 1;
 $JSprite::LOCK_EX = 2;
 
@@ -1616,8 +1616,6 @@ NOMATCHED1:
 				push (@$results, [split(/\x02\^2jSpR1tE\x02/, $i)]);
 			}
 		}
-#$| = 1;
-#print "-ordercols=".join('|',@$ordercols)."= order=".join('|',@{$self->{order}})."= columns=".join('|',@columns)."=\n";
 		if (@$ordercols)   #COMPLETELY OVERHAULED 20020708 TO SUPPORT MULTIPLE ASCENDING/DESCENDING DECISIONS & SORTING ON COLUMNS NOT IN RESULT-SET!
 		{
 			@$ordercols = reverse(@$ordercols);
@@ -1645,7 +1643,6 @@ NOMATCHED1:
 			my $fieldval;
 			foreach my $j (@$ordercols)
 			{
-#print "-jcnt =$jcnt= j=$j= do($jcnt)=$descorder->[$jcnt]=\n";
 				$j =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
 				$k = $colorder{$j} || -1;
 				for (my $i=0;$i<=$#$results;$i++)
@@ -1653,9 +1650,6 @@ NOMATCHED1:
 					$fieldval = ($k >= 0) ?
 							${$results}[$SI[$i]]->[$k] 
 							: $self->{records}->[$result_index[$SI[$i]]]->{$j};
-#print "-BEF: R($i)=${$results}[$SI[$i]]->[$k]= SI($i)=$SI[$i]=!!!!!!!!!!\n";
-#print "---i=$i= j=$j= tp=${$self->{types}}{$j}= do=$do= SIcnt=$#SI= SAcnt=$#SA= SI=$SI[$i]=\n";
-#print "-i=$i= K=$k= j=$j= RES=${$results}[$SI[$i]]->[$k]= REC($result_index[$SI[$i]])=$self->{records}->[$result_index[$SI[$i]]]->{$j}=\n";
 					if (${$self->{types}}{$j} eq 'FLOAT' || ${$self->{types}}{$j} eq 'DOUBLE')
 					{
 						push (@SA, (sprintf('%'.${$self->{lengths}}{$j}.${$self->{scales}}{$j}.'e',$fieldval) . $mysep[$do] . $SSA[$i]));
@@ -1666,16 +1660,13 @@ NOMATCHED1:
 					}
 					else
 					{
-#print "-???- i=$i= RC=$#$results= SI=$SI[$i]= res1=${$results}[$i]->[$k]= res2=$fieldval=\n";
 						push (@SA, ($fieldval . $mysep[$do] . $SSA[$i]));
 					}
 				}
 				@SI = ();
 				@SSA = ();
-#print "-DUR: S=".join("\n", @SA)."=\n";
 				@SI = sort {$a cmp $b} @SA;
 				@SI = reverse(@SI)  if ($do);
-#print "-AFT SORT: S=".join("\n", @SSA)."=  DO=$do=\n";
 				@SA = ();
 				my $ii = $#SI;
 				my $l = length($ii);
@@ -1686,22 +1677,18 @@ NOMATCHED1:
 					{
 						for (my $i=0;$i<=$#SI;$i++)
 						{
-#print "---DES bef: si($i) =$SI[$i]= SEP=$mysep[$do]=\n";
 							$SI[$i] =~ /(\d+)$/;
 							$SI[$i] = $1;
 							push (@SSA, sprintf("%${l}d",$ii--) . $mysep[$do] . $SI[$i]);
-#print "---DES aft: si($i) =$SI[$i]=\n";
 						}
 					}
 					else
 					{
 						for (my $i=0;$i<=$#SI;$i++)
 						{
-#print "---ASC bef: si($i) =$SI[$i]= SEP=$mysep[$do]=\n";
 							$SI[$i] =~ /(\d+)$/;
 							$SI[$i] = $1;
 							push (@SSA, sprintf("%${l}d",$i) . $mysep[$do] . $SI[$i]);
-#print "---ASC aft: si($i) =$SI[$i]=\n";
 						}
 					}
 				}
@@ -1710,11 +1697,8 @@ NOMATCHED1:
 			@$results = ();
 			for (my $i=0;$i<=$#SI;$i++)
 			{
-#print "-BEF: si($i)=$SI[$i]=\n";
 				$SI[$i] =~ /(\d+)$/;
 				$SI[$i] = $1;
-#print "-AFT: si($i)=$SI[$i]=\n";
-#print "---SI($i)=$SI[$i]= RES=".join('|',@{$SA[$SI[$i]]})."=\n";
 				push (@$results, $SA[$SI[$i]]);
 			}
 		}
@@ -1995,7 +1979,6 @@ END_CODE
 				$descorder = 'asc';
 				$descorder = $2  if ($ordercols[$i] =~ s/(\w+)\W+(asc|desc|ascending|descending)$/$1/is); #20020708
 				push (@descorder, $descorder);  #20020708
-#print "<BR>lastoc=$ordercols[$i]= desc=$descorder=\n";
 			}
 			#$orderclause =~ s/,\s+/,/g;
 			for $i (0..$#ordercols)
@@ -2024,7 +2007,9 @@ END_CODE
 			{
 				for (my $i=0;$i<=$#fields;$i++)
 				{
-					$fields[$i] =~ s/([^\,]+)/\$\$\_\{\U$1\E\}/g;
+					#$fields[$i] =~ s/([^\,]+)/\$\$\_\{\U$1\E\}/g;  #CHGD. TO NEXT 20030208 TO FIX WIERD BUG THAT $#?%ED UP NAMES SOMETIMES!
+					$fields[$i] =~ s/([^\,]+)/\$\$\_\{$1\}/g;
+					$fields[$i] =~ tr/a-z/A-Z/;
 				}
 			}
 		}
@@ -2228,16 +2213,7 @@ sub drop
 		my $cfr = $self->check_for_reload($table) || -501;
 		return $cfr  if ($cfr < 0);
 
-		@{$self->{records}} = ();    #ADDED NEXT 7 20021025 TO REMOVE DANGLING DATA (CAUSED TESTS TO FAIL AT 9)!
-		@{$self->{order}} = ();
-		%{$self->{types}} = ();
-		%{$self->{lengths}} = ();
-		%{$self->{scales}} = ();
-		%{$self->{defaults}} = ();
-		$self->{key_fields} = '';
-
-		#SOME DAY, I SHOULD ADD CODE TO DELETE DANGLING BLOB FILES!!!!!!!
-
+		@{$self->{records}} = ();    #ADDED 20021025 TO REMOVE DANGLING DATA (CAUSED TESTS TO FAIL AT 9)!
 #		return (unlink $self->{file} || -501);  #NEXT 2 CHGD. TO FOLLOWING 20020606.
 #		return 
 		return (unlink $self->{file}) ? '0E0' : -501;
@@ -3354,8 +3330,8 @@ sub load_database
 
 		($header)  = /^ *(.*?) *$/;
 		#####################$header =~ tr/a-z/A-Z/;   #JWT  20000316
-	    #@fields    = split (/$self->{_read}/o, $header);  #CHGD TO NEXT LINE 20010917.
-		@fields    = split (/$self->{_read}/, $header);
+	    #@fields    = split (/$self->{_read}/o, $header);  #CHGD TO NEXT LINE 20021216.
+		@fields    = split (/\Q$self->{_read}\E/, $header);
 		$no_fields = $#fields;
 
 		undef %{ $self->{types} };
@@ -3405,7 +3381,8 @@ sub load_database
 
 			next unless ($_);
 
-			@record = split (/$self->{_read}/s, $_);
+			#@record = split (/$self->{_read}/s, $_);   #CHGD. TO NEXT LINE 20021216
+			@record = split (/\Q$self->{_read}\E/s, $_);
 
 			$hash = {};
 
@@ -3496,7 +3473,8 @@ END_XML
 		{
 			my $colmlist = <FILE>;
 			chomp ($colmlist);
-			$colmlist =~ s/$self->{_read}/$sep/g;
+			#$colmlist =~ s/$self->{_read}/$sep/g;   #CHGD. TO NEXT LINE 20021216
+			$colmlist =~ s/\Q$self->{_read}\E/$sep/g;
 			@{$self->{order}} = split(/$sep/, $colmlist);
 		}
 		close FILE;
