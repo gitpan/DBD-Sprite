@@ -1,5 +1,3 @@
-#!/usr/local/bin/perl5
-
 ##++
 ##    JSprite
 ##    Sprite v.3.2
@@ -455,6 +453,7 @@ use vars qw($VERSION);
 use Cwd;
 use Fcntl; 
 use File::DosGlob 'glob';
+our ($XMLavailable, $results);
 eval 'use XML::Simple; $XMLavailable = 1; 1';
 eval {require 'OraSpriteFns.pl';};
 
@@ -465,7 +464,7 @@ eval {require 'OraSpriteFns.pl';};
 use vars qw ($VERSION $LOCK_SH $LOCK_EX);
 ##--
 
-$JSprite::VERSION = '5.34';
+$JSprite::VERSION = '5.35';
 $JSprite::LOCK_SH = 1;
 $JSprite::LOCK_EX = 2;
 
@@ -477,6 +476,7 @@ my $REFTYPES = '^(LONG.*|.FILE)$';   #SUPPORT FILE-REFERENCING FOR THESE BLOB-TY
 my @perlconds = ();
 my @perlmatches = ();
 my $sprite_user = '';   #ADDED 20011026.
+our ($errdetails);
 
 ##++
 ##  Public Methods and Constructor
@@ -533,8 +533,10 @@ sub new
 		sprite_forcereplace => 0,  #JWT: 20010912: FORCE DELETE/REPLACE OF DATAFILE (FOR INTERNAL WEBFARM USE)!
 		sprite_Crypt => 0,  #JWT: 20020109:  Encrypt Sprite table files! FORMAT:  [[encrypt=|decrypt=][Crypt]::CBC;][[IDEA[_PP]|DES]_PP];]keystr
 		sprite_reclimit => 0, #JWT: 20010123: PERMIT LIMITING # OF RECORDS FETCHED.
+		sprite_sizelimit => 0, #JWT: 20010123: SAME AS RECLIMIT, NEEDED BOR BACKWARD COMPAT.
 		dbuser			=> '',      #JWT: 20011026: SAVE USER'S NAME.
-		dbname			=> ''      #JWT: 20020515: SAVE DATABASE NAME.
+		dbname			=> '',      #JWT: 20020515: SAVE DATABASE NAME.
+		CBC			=> 0        #JWT: 20020529: SAVE Crypt::CBC object, if encrypting!
 	    };
 
     $self->{separator} = { Unix  => '/',    Mac => ':',   #JWT: BUGFIX.
@@ -591,7 +593,7 @@ sub initialize
 		}
 		else
 		{
-		    eval {$CBC = Crypt::CBC->new($cryptinfo[2], $cryptinfo[1]); };
+		    eval {$self->{CBC} = Crypt::CBC->new($cryptinfo[2], $cryptinfo[1]); };
 		    if ($@)
 		    {
 				$errdetails = "Can't find/use module \"$cryptinfo[1].pm\"? ($@)!";
@@ -817,7 +819,7 @@ sub display_error
 {	
     my ($self, $error) = @_;
 
-    $other = $@ || $! || 'None';
+    my $other = $@ || $! || 'None';
 
     print STDERR <<Error_Message  unless ($self->{silent});
 
@@ -908,7 +910,7 @@ sub xclose
 {
     my ($self, $file) = @_;
 	
-	$status = $self->commit($file);
+	my $status = $self->commit($file);
     undef $self;
 
     return $status;
@@ -973,8 +975,8 @@ sub parse_expression
 	unless ($colmlist =~ /\S/)
 	{
 		$self->{file} =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
-		$thefid = $self->{file};
-		$colmlist = &load_columninfo('|');
+		#$thefid = $self->{file};
+		$colmlist = &load_columninfo($self, '|');
 		return $colmlist  if ($colmlist =~ /^\-?\d+$/);
 	}
     $column    = $self->{column};
@@ -1294,7 +1296,7 @@ sub parse_columns
 	$rowcnt = 0;
 
 	my (@these_results);
-	$fieldregex = $self->{fieldregex};
+#	$fieldregex = $self->{fieldregex};
 	my ($skipreformat) = 0;
 	my ($colskipreformat) = 0;
 #	foreach my $i (@columns)
@@ -1331,6 +1333,8 @@ sub parse_columns
 		}
 	}
 	my $blobfid;
+	my $jj;
+	$self->{sprite_reclimit} ||= $self->{sprite_sizelimit};  #ADDED 20020530 FOR SQL-PERL PLUS!
     for ($loop=0; $loop < scalar @{ $self->{records} }; $loop++)
 	{
 		next unless (defined $self->{records}->[$loop]);    #JWT: DON'T RETURN BLANK DELETED RECORDS.
@@ -1458,8 +1462,8 @@ NOMATCHED1:
 				{
 					unless ($self->{fields}->{"\U$valuenames{$jj}\E"})  #ADDED TEST 20001218 TO ALLOW FIELD-NAMES AS RIGHT-VALUES.
 					{
-						#$rawvalue = &chkcolumnparms($valuenames{$jj}); #CHGD. TO NEXT 20011018.
-						$rawvalue = &chkcolumnparms($rawvalue);
+						#$rawvalue = &chkcolumnparms($self, $valuenames{$jj}); #CHGD. TO NEXT 20011018.
+						$rawvalue = &chkcolumnparms($self, $rawvalue);
 						$rawvalue = eval $rawvalue;   #FUNCTION EVAL 3
 						return (-517)  if ($@);
 					}
@@ -1530,9 +1534,9 @@ NOMATCHED1:
 					if (open(FILE, ">$blobfid"))
 					{
 						binmode FILE;
-						if ($CBC && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
+						if ($self->{CBC} && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
 						{
-							print FILE $CBC->encrypt($rawvalue);
+							print FILE $self->{CBC}->encrypt($rawvalue);
 						}
 						else
 						{
@@ -1597,7 +1601,8 @@ NOMATCHED1:
 			$rowcnt = 0;
 			my ($mysep) = "\x02\^2jSpR1tE\x02";
 			$mysep = "\xFF"  if ($descorder);
-			@SA = ();
+			my @SA = ();
+			my @l;
 			$i = 0;
 			#for (0..$#{$self->{order}})
 			for (0..$#columns)
@@ -1637,7 +1642,7 @@ NOMATCHED1:
 				$SA[$i] .= '|' . $_;  #NOTE: "|" DOES *NOT* NEED TO BE PROTECTED!
 				++$i;                 #(ONLY THE *LAST* VALUE OF THE SPLIT IS USED).
 			}
-			@SSA = sort {$a cmp $b} @SA;  #SORT 'EM!
+			my @SSA = sort {$a cmp $b} @SA;  #SORT 'EM!
 			@SSA = reverse(@SSA)  if ($descorder);
 			@SA = ();
 			for (0..$#SSA)
@@ -1746,9 +1751,9 @@ sub rollback
 	{
 		$blobglob = $self->{directory}.$self->{separator}->{ $self->{platform} }
 				.$self->{table}."_*_$$.del";
-		@tempblobs = ();
+		my @tempblobs = ();
 		eval qq|\@tempblobs = <$blobglob>|;
-		my $blobfile;
+		my ($blobfile, $tempfile);
 		while (@tempblobs)
 		{
 			$tempfile = shift(@tempblobs);
@@ -1766,11 +1771,11 @@ sub select
 {
     my ($self, $query) = @_;
     my ($i, @l, $regex, $path, $columns, $table, $extra, $condition, 
-			$values_or_error);
+			$values_or_error, $descorder);
 	my (@ordercols) = ();
     $regex = $self->{_select};
     $path  = $self->{path};
-$fieldregex = $self->{fieldregex};
+#$fieldregex = $self->{fieldregex};
 	my ($psuedocols) = "CURVAL|NEXTVAL";
 
 	my $distinct;   #NEXT 2 ADDED 20010521 TO ADD "DISTINCT" CAPABILITY!
@@ -1785,12 +1790,14 @@ $fieldregex = $self->{fieldregex};
     {
 		my ($column_stuff, $table, $extra) = ($1, $2, $3);
     		my (@fields) = ();
-    		my ($fnname, $found_parin, $parincnt);
+    		my ($fnname, $found_parin, $parincnt, $t);
+		my @column_stuff;
+
 		#ORACLE COMPATABILITY!
 
 		if ($column_stuff =~ /^table_name\s*$/i && $table =~ /^(user|all)_tables$/i)  #JWT: FETCH TABLE NAMES!
 		{
-			$full_path = $self->{directory};
+			my $full_path = $self->{directory};
 			$full_path .= $self->{separator}->{ $self->{platform} }  
 					unless ($full_path !~ /\S/ 
 					|| $full_path =~ m#$self->{separator}->{ $self->{platform} }$#);
@@ -1882,7 +1889,7 @@ END_CODE
 			$column_stuff = $t;
 		}
 
-		$thefid = $table;
+		#$thefid = $table;
 		#$self->check_for_reload ($table) || return (-501);  #CHGD. TO NEXT 20020110 TO BETTER CATCH ERRORS.
 		my $cfr = $self->check_for_reload($table) || -501;
 		return $cfr  if ($cfr < 0);
@@ -1921,7 +1928,7 @@ END_CODE
 		#if ($extra =~ s/([\s|\)]+)order\s+by\s*(.*)/$1/i)  #20011129
 		if ($extra =~ s/([\s|\)]+)order\s+by\s*(.*)/$1/is)
 		{
-			$orderclause = $2;
+			my $orderclause = $2;
 			@ordercols = split(/,/,$orderclause);
 			#$descorder = ($ordercols[$#ordercols] =~ s/(\w+\W+)desc$/$1/i);
 			$descorder = ($ordercols[$#ordercols] =~ s/(\w+\W+)desc$/$1/is); #20011129
@@ -1997,7 +2004,7 @@ sub update
 		$errdetails = 'parenthesis around SET clause?';
 		return (-504);
 	}
-	$thefid = $table;
+	#$thefid = $table;
 	#$self->check_for_reload ($table) || return (-501);  #CHGD. TO NEXT 20020110 TO BETTER CATCH ERRORS.
 	my $cfr = $self->check_for_reload($table) || -501;
 	return $cfr  if ($cfr < 0);
@@ -2020,7 +2027,7 @@ sub update
 	$extra =~ s/^\s+//s;  #STRIP OFF SURROUNDING SPACES.
 	$extra =~ s/\s+$//s;
 	#NOW TEMPORARILY PROTECT COMMAS WITHIN (), IE. FN(ARG1,ARG2).
-	$column = $self->{column};
+	my $column = $self->{column};
 	$extra =~ s/($column\s*\=\s*)\'(.*?)\'(,|$)/
 		my ($one,$two,$three) = ($1,$2,$3);
 		$two =~ s|\,|\x02\^5jSpR1tE\x02|g;
@@ -2037,7 +2044,7 @@ sub update
 	###$extra =~ s/\'(.*?)\'/my ($j)=$1;  #PROTECT COMMAS IN QUOTES.
 	###		$j=~s|,|\x02\^5jSpR1tE\x02|g; 
 	###	"'$j'"/eg;
-	@expns = split(',',$extra);
+	my @expns = split(',',$extra);
 	for ($i=0;$i<=$#expns;$i++)  #PROTECT "WHERE" IN QUOTED VALUES.
 	{
 		$expns[$i] =~ s/\x02\^5jSpR1tE\x02/,/gs;
@@ -2106,7 +2113,7 @@ sub delete
     if ($query =~ /^delete\s+from\s+($path)(?:\s+where\s+(.+))?$/ios) {
 	$table     = $1;
 	$wherepart = $2;
-	$thefid = $table;
+	#$thefid = $table;
 	#$self->check_for_reload ($table) || return (-501);  #CHGD. TO NEXT 20020110 TO BETTER CATCH ERRORS.
 	my $cfr = $self->check_for_reload($table) || -501;
 	return $cfr  if ($cfr < 0);
@@ -2210,7 +2217,7 @@ sub create
 {
 	my ($self, $query) = @_;
 
-	my ($i, @keyfields);
+	my ($i, @keyfields, @values);
 ### create table table1 (field1 number, field2 varchar(20), field3 number(5,3))
     local (*FILE, $^W);
 	local ($/) = $self->{_record};    #JWT:SUPPORT ANY RECORD-SEPARATOR!
@@ -2218,7 +2225,7 @@ sub create
     $^W = 0;
 	if ($query =~ /^create\s+table\s+($self->{path})\s*\((.+)\)\s*$/is)
 	{
-		($table, $extra) = ($1, $2);
+		my ($table, $extra) = ($1, $2);
 	    $query =~ tr/a-z/A-Z/s;  #ADDED 20000225;
 	    #$extra =~ tr/a-z/A-Z/;  #ADDED 20000225;
 		$extra =~ s/^\s*//s;
@@ -2235,6 +2242,7 @@ sub create
 
 		my (@fieldlist) = split(/,/,$extra);
 		my ($fields) = '';
+		my $fieldname;
 		for ($i=0;$i<=$#fieldlist;$i++)
 		{
 			$fieldlist[$i] =~ s/^\s+//gs;
@@ -2340,7 +2348,7 @@ sub create
 				}
 			}
 			$fields .= $fieldname . '=';
-			for ($j=0;$j<=$#keyfields;$j++)
+			for (my $j=0;$j<=$#keyfields;$j++)
 			{
 				if ($fieldname eq $keyfields[$j])
 				{
@@ -2361,7 +2369,7 @@ sub create
 		}
 		$fields =~ s|\x02\^2jSpR1tE\x02|\,|g;
 		#$fields =~ tr/a-z/A-Z/;
-		$new_file = $self->get_path_info ($table);
+		my $new_file = $self->get_path_info ($table);
 		my ($new_filename) = $new_file;  #ADDED 20000225;
 		$new_file .= $self->{ext}  if ($self->{ext});  #JWT:ADD FILE EXTENSIONS.
 		$new_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
@@ -2415,8 +2423,9 @@ sub create
 sub alter
 {
     my ($self, $query) = @_;
-    my ($i, $path, $regex, $table, $extra, $type, $column, $count, $status);
+    my ($i, $path, $regex, $table, $extra, $type, $column, $count, $status, $fd);
     my ($posn);
+	my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
 
     $path  = $self->{path};
     $regex = $self->{column};
@@ -2426,7 +2435,7 @@ sub alter
 		($table, $extra) = ($1, $2);
 		if ($extra =~ /^(add|modify|drop)\s*(.+)$/ios)
 		{
-			($type, $columnstuff) = ($1, $2);
+			my ($type, $columnstuff) = ($1, $2);
 			$columnstuff =~ s/^\s*\(//s;
 			$columnstuff =~ s/\)\s*$//s;
 ###alter table table2 add (newcol1  varchar(5), newcol2 varchar(10))
@@ -2440,14 +2449,14 @@ sub alter
 				$str =~ s|\,|\x02\^2jSpR1tE\x02|gs;   #PROTECT COMMAS IN QUOTES.
 				"$quote$str$quote"/egs;
 
-			$thefid = $table;
+			#$thefid = $table;
 			#$self->check_for_reload ($table) || return (-501);  #CHGD. TO NEXT 20020110 TO BETTER CATCH ERRORS.
 			my $cfr = $self->check_for_reload($table) || -501;
 			return $cfr  if ($cfr < 0);
 
 			my (@values) = ();
 			my (@fieldlist) = split(/,/,$columnstuff);
-			my ($olddf, $oldln);
+			my ($olddf, $oldln, $tp, $x);
 			while (@fieldlist)
 			{
 				$i = shift(@fieldlist);
@@ -2466,7 +2475,7 @@ sub alter
 				$fd = $i;
 				$fd =~ s/=.*//;
 				$fd =~ tr/a-z/A-Z/;
-				for ($j=0;$j<=$#keyfields;$j++)
+				for (my $j=0;$j<=$#keyfields;$j++)
 				{
 					$i =~ s/=/=*/  if ($fd eq $keyfields[$j]);
 				}
@@ -2597,7 +2606,7 @@ sub alter
 				{
 					if (defined $posn)
 					{
-						for ($j=0;$j<=$#{ $self->{order} };$j++)
+						for (my $j=0;$j<=$#{ $self->{order} };$j++)
 						{
 							if (${ $self->{order} }[$j] eq $fd)
 							{
@@ -2660,7 +2669,7 @@ sub insert
 
 	($table, $columns, $values) = ($1, $2, $3);
 	return (-523)  if ($table =~ /^DUAL$/i);
-	$thefid = $table;
+	#$thefid = $table;
 	#$self->check_for_reload ($table) || return (-501);  #CHGD. TO NEXT 20020110 TO BETTER CATCH ERRORS.
 	my $cfr = $self->check_for_reload($table) || -501;
 	return $cfr  if ($cfr < 0);
@@ -2670,11 +2679,11 @@ sub insert
 	$columns = join(',', @{ $self->{order} })  unless ($columns =~ /\S/);  #JWT
 	#$self->check_for_reload ($table) || return (-501);
 	return (-511)  unless (-w $self->{file});
-$fieldregex = $self->{fieldregex};
+#$fieldregex = $self->{fieldregex};
 	unless ($columns =~ /\S/)
 	{
-		$thefid = $self->{file};
-		$columns = &load_columninfo(',');
+		#$thefid = $self->{file};
+		$columns = &load_columninfo($self, ',');
 		return $columns  if ($columns =~ /^\-?\d+$/);
 	}
 
@@ -2689,8 +2698,9 @@ $fieldregex = $self->{fieldregex};
 			$j=~s|,|\x02\^4jSpR1tE\x02|gs;         #PROTECT "," IN QUOTES.
 			"'$j'"
 	/egs;
-		
-	@values = split(/,/,$values);
+
+	my $x;
+	my @values = split(/,/,$values);
 	$values = '';
 	for $i (0..$#values)
 	{
@@ -2716,7 +2726,7 @@ $fieldregex = $self->{fieldregex};
 				$x = <FILE>;
 				#chomp($x);
 				$x =~ s/\s+$//;   #20000113  CHOMP WON'T WORK HERE IF RECORD DELIMITER SET TO OTHER THAN \n!
-				($incval, $startval) = split(/,/,$x);
+				my ($incval, $startval) = split(/,/,$x);
 				close (FILE);
 				$_ = $values[$i];
 				if (/\s*(\w+).NEXTVAL\s*$/)
@@ -2737,7 +2747,7 @@ $fieldregex = $self->{fieldregex};
 			else
 			{
 				#eval {$values[$i] = &{$values[$i]} };
-				$values[$i] = eval &chkcolumnparms($values[$i]);   #FUNCTION EVAL 2
+				$values[$i] = eval &chkcolumnparms($self, $values[$i]);   #FUNCTION EVAL 2
 				return (-517)  if ($@);
 			}
 		}
@@ -2841,9 +2851,9 @@ sub insert_data
 				if (open(FILE, ">$randblobfid"))
 				{
 					binmode FILE;
-					if ($CBC && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
+					if ($self->{CBC} && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
 					{
-						print FILE $CBC->encrypt($v);
+						print FILE $self->{CBC}->encrypt($v);
 					}
 					else
 					{
@@ -2928,11 +2938,11 @@ sub write_file
 	my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
 
 	return ($self->display_error (-531) * -531)
-			if (($self->{_write} =~ /^xml/i) && $CBC && $self->{sprite_Crypt} <= 2);
+			if (($self->{_write} =~ /^xml/i) && $self->{CBC} && $self->{sprite_Crypt} <= 2);
 
     local (*FILE, $^W);
 	local ($/);
-	if ($CBC && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
+	if ($self->{CBC} && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
 	{
 		$/ = "\x03^0jSp".$self->{_record};    #(EOR) JWT:SUPPORT ANY RECORD-SEPARATOR!
 	}
@@ -2974,6 +2984,7 @@ sub write_file
 #print "-1: write=$self->{_write}=\n";
 	if ($self->{_write} =~ /^xml/i)
 	{
+		require MIME::Base64;
 #print "-2: is XML!\n";
 		$fields = <<END_XML;
 <?xml version="1.0" encoding="UTF-8"?><database name="$self->{dbname}" user="$self->{dbuser}">
@@ -2984,6 +2995,7 @@ END_XML
 		for $i (0..$#{$self->{order}})
 		{
 			$iskey = 'NO';
+#print "-???- order($i)=${$self->{order}}[$i]= keys=".join('|', @keyfields)."=\n";
 			for ($j=0;$j<=$#keyfields;$j++)  #JWT: MARK KEY FIELDS.
 			{
 				if (${$self->{order}}[$i] eq $keyfields[$j])
@@ -3043,9 +3055,9 @@ END_XML
 	}
 
 	#$fields =~ tr/a-z/A-Z/;   #JWT:MAKE SURE COLUMNS are UPPERCASE!
-	if ($CBC && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
+	if ($self->{CBC} && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
 	{
-		print FILE $CBC->encrypt($fields).$/;
+		print FILE $self->{CBC}->encrypt($fields).$/;
 	}
 	else
 	{
@@ -3081,7 +3093,7 @@ END_XML
 			#NEXT 2 ADDED 20020111 TO PERMIT EMBEDDED RECORD & FIELD SEPERATORS.
 			$value =~ s/$self->{_record}/\x02\^0jSpR1tE\x02/gs;   #PROTECT EMBEDDED RECORD SEPARATORS.
 			$value =~ s/$self->{_write}/\x02\^1jSpR1tE\x02/gs;   #PROTECT EMBEDDED RECORD SEPARATORS.
-			$record_string .= $rsinit ? ("   <$column>".&xmlescape($value)."</$column>\n") 
+			$record_string .= $rsinit ? (&xmlescape($column,$value)."\n") 
 					: "$self->{_write}$value";
 	    }
 
@@ -3089,9 +3101,9 @@ END_XML
 	    $record_string =~ s/^$self->{_write}//s;
 	    $record_string .= $rsend;
 
-		if ($CBC && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
+		if ($self->{CBC} && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
 		{
-			print FILE $CBC->encrypt($record_string).$/;
+			print FILE $self->{CBC}->encrypt($record_string).$/;
 		}
 		else
 		{
@@ -3101,9 +3113,9 @@ END_XML
 	if ($rsend)
 	{
 		$rsend = " </select>\n</database>\n";
-		if ($CBC && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
+		if ($self->{CBC} && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
 		{
-			print FILE $CBC->encrypt($rsend).$/;
+			print FILE $self->{CBC}->encrypt($rsend).$/;
 		}
 		else
 		{
@@ -3128,7 +3140,7 @@ END_XML
 		'>' => '&gt;',
 		'"' => '&quot;',
 		'--' => '&#45;&#45;',
-		"\0" => '&#0;'
+#		"\0" => '&#0;'
 	);
 #$x = '66';
 #$y = sprintf('%x', '66');
@@ -3136,18 +3148,30 @@ END_XML
 #$x = "42";
 #$y = hex($x);
 #$y;
-$x = 'B';
-$y = unpack('H2', $x);
-$y;
+#$x = 'B';
+#$y = unpack('H2', $x);
+#$y;
 	sub xmlescape
 	{
-		$_[0] =~ s/\&/\&amp;/gs;
-		eval "\$_[0] =~ s/(".join('|', keys(%xmleschash)).")/\$xmleschash{\$1}/gs;";
-#$_[0] = "abc\x7,d\x08e\x12f\xffg\x0h";
-		#$_[0] =~ s/([\x01-\x09\x0b\x0c\x0e-\x1b\x7f-\xff])/"\&\#".ord($1).';'/egs;
-		$_[0] =~ s/([\x01-\x1b\x7f-\xff])/"\&\#".ord($1).';'/egs;
-#$_[0];
-		return $_[0];
+		my $res;
+
+#		if (ref($_[1]))   #SHOULDN'T NEED NOW - LOAD_DATABASE HANDLES THIS NOW.
+#		{
+#print "-$_[1]- IS A HASH REF!\n";
+#			$_[1] = '';
+#		}
+		$_[1] =~ s/\&/\&amp;/gs;
+		eval "\$_[1] =~ s/(".join('|', keys(%xmleschash)).")/\$xmleschash{\$1}/gs;";
+		#$_[1] =~ s/([\x01-\x1b\x7f-\xff])/"\&\#".ord($1).';'/egs;
+		if ($_[1] =~ /[\x00-\x08\x0A-\x0C\x0E-\x19\x7f-\xff]/)
+		{
+			return "   <$_[0] xml:encoding=\"base64\">" 
+					. MIME::Base64::encode_base64($_[1]) . "</$_[0]>";
+		}
+		else
+		{
+			return "   <$_[0]>$_[1]</$_[0]>";
+		}	
 	}
 }
 
@@ -3156,12 +3180,12 @@ sub load_database
     my ($self, $file) = @_;
 
 	return -531 
-			if (($self->{_read} =~ /^xml/i) && $CBC && $self->{sprite_Crypt} <= 2);
+			if (($self->{_read} =~ /^xml/i) && $self->{CBC} && $self->{sprite_Crypt} <= 2);
 
     my ($i, $header, @fields, $no_fields, @record, $hash, $loop, $tp, $dflt);
     local (*FILE);
 	local ($/);
-	if ($CBC && $self->{sprite_Crypt} != 2)  #ADDED: 20020109
+	if ($self->{CBC} && $self->{sprite_Crypt} != 2)  #ADDED: 20020109
 	{
 		$/ = "\x03^0jSp".$self->{_record};    #JWT:SUPPORT ANY RECORD-SEPARATOR!
 	}
@@ -3171,7 +3195,7 @@ sub load_database
 	}
 
 	########$file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
-	$thefid = $file;
+	#$thefid = $file;
 #    open (FILE, $file) || return (-501);
 #	binmode FILE;   #20000404
 
@@ -3183,10 +3207,8 @@ sub load_database
 		return -532  unless ($XMLavailable);
 		my $xs1 = XML::Simple->new();
 		my $xmldoc;
-#print "-!!!- calling xmlin!\n";
 		eval {$xmldoc = $xs1->XMLin($file, suppressempty => undef); };
 		$errdetails = $@;
-#print "-???- xmldoc=$xmldoc=\n";
 		return -501  unless ($xmldoc);
 		@fields = ($xmldoc->{select}->{columns}->{order}) 
 				? split(/\,/, $xmldoc->{select}->{columns}->{order}) 
@@ -3194,7 +3216,7 @@ sub load_database
 #print "-1: fields=".join('|',@fields)."=\n";
 		foreach my $i (0..$#fields)
 		{
-			$self->{key_fields} .= $fields[$i] 
+			$self->{key_fields} .= ($fields[$i] . ',')
 					if ($xmldoc->{select}->{columns}->{column}->{$fields[$i]}->{key} 
 							eq 'PRIMARY');
 			${$self->{types}}{$fields[$i]} = 
@@ -3224,14 +3246,23 @@ sub load_database
 			foreach my $j (@fields)
 			{
 #print "-BEF- rec($i)=$self->{records}->[$i]->{$j}= pack=".join('|',unpack('C*', $self->{records}->[$i]->{$j}))."=\n"  if ($j eq 'JUST');
+#print "-BEF- rec($i)=$self->{records}->[$i]->{$j}= enc=".$self->{records}->[$i]->{$j}->{'xml:encoding'}."=\n"  if ($j eq 'JUST');
+				if ($self->{records}->[$i]->{$j}->{'xml:encoding'})
+				{
+#print "-DUR- content=".$self->{records}->[$i]->{$j}->{content}."=\n"  if ($j eq 'JUST');
+					$self->{records}->[$i]->{$j} = MIME::Base64::decode_base64($self->{records}->[$i]->{$j}->{content});
+#print "-DUR- rec($i)=$self->{records}->[$i]->{$j}=\n"  if ($j eq 'JUST');
+				}
+				$self->{records}->[$i]->{$j} = ''  if (ref($self->{records}->[$i]->{$j}));
 				$self->{records}->[$i]->{$j} =~ s/\&lt;/\</gs;
 				$self->{records}->[$i]->{$j} =~ s/\&gt;/\>/gs;
 				$self->{records}->[$i]->{$j} =~ s/\&quot;/\"/gs;
 				$self->{records}->[$i]->{$j} =~ s/\&\#45;/\-/gs;
-				$self->{records}->[$i]->{$j} =~ s/\&\#0;/\0/gs;
-				$self->{records}->[$i]->{$j} =~ s/\&\#(\d+);/pack('C', $1)/egs;
+				#$self->{records}->[$i]->{$j} =~ s/\&\#0;/\0/gs;
+				#$self->{records}->[$i]->{$j} =~ s/\&\#(\d+);/pack('C', $1)/egs;
 				$self->{records}->[$i]->{$j} =~ s/\&amp;/\&/gs;
 #print "-AFT- rec($i)=$self->{records}->[$i]->{$j}= pack=".join('|',unpack('C*', $self->{records}->[$i]->{$j}))."=\n"  if ($j eq 'JUST');
+#print "-AFT- rec($i)=$self->{records}->[$i]->{$j}=\n"  if ($j eq 'JUST');
 			}
 		}
 
@@ -3264,7 +3295,7 @@ sub load_database
 		$_ = <FILE>;
 		chomp;          #JWT:SUPPORT ANY RECORD-SEPARATOR!
 		my $t = $_;
-		$_ = $CBC->decrypt($t)  if ($CBC && $self->{sprite_Crypt} != 2);  #ADDED: 20020109
+		$_ = $self->{CBC}->decrypt($t)  if ($self->{CBC} && $self->{sprite_Crypt} != 2);  #ADDED: 20020109
 		return -527  unless (/^\w+\=/);   #ADDED 20020110
 
 		($header)  = /^ *(.*?) *$/;
@@ -3276,6 +3307,8 @@ sub load_database
 		undef %{ $self->{types} };
 		undef %{ $self->{lengths} };
 		undef %{ $self->{scales} };   #ADDED 20000306.
+
+		my $ln;
 		foreach $i (0..$#fields)
 		{
 			$dflt = undef;
@@ -3314,7 +3347,7 @@ sub load_database
 		{
 			chomp;
 			$t = $_;
-			$_ = $CBC->decrypt($t)  if ($CBC && $self->{sprite_Crypt} != 2);  #ADDED: 20020109
+			$_ = $self->{CBC}->decrypt($t)  if ($self->{CBC} && $self->{sprite_Crypt} != 2);  #ADDED: 20020109
 
 			next unless ($_);
 
@@ -3355,7 +3388,9 @@ sub load_database
 
 sub load_columninfo
 {
+	my ($self) = shift;
 	my ($sep) = shift;
+
 	my $colmlist;
 
 	if ($#{$self->{order}} >= 0)
@@ -3364,14 +3399,32 @@ sub load_columninfo
 	}
 	else
 	{
+		local (*FILE);
+		local ($_);
+		local ($/) = $self->{_record};    #JWT:SUPPORT ANY RECORD-SEPARATOR!
+	
+		open(FILE, $self->{file}) || return -501;
+		binmode FILE;         #20000404
 		if ($self->{_read} =~ /^xml/i)
 		{
-			return -531  if ($CBC && $self->{sprite_Crypt} <= 2);
+			return -531  if ($self->{CBC} && $self->{sprite_Crypt} <= 2);
 			return -532  unless ($XMLavailable);
 	
 			my $xs1 = XML::Simple->new();
+			my $xmltext = '';
 			my $xmldoc;
-			eval {$xmldoc = $xs1->XMLin($self->{file}, suppressempty => undef); };
+#			eval {$xmldoc = $xs1->XMLin($self->{file}, suppressempty => undef); };
+			while (<FILE>)
+			{
+				last  if (/^\s*\<row\>\s*$/);
+				$xmltext .= $_;
+			}
+			$xmltext .= <<END_XML;  #MAKE IT WELL-FORMED!
+  </row>
+ </select>
+</database>
+END_XML
+			eval {$xmldoc = $xs1->XMLin($xmltext, suppressempty => undef); };
 			$errdetails = $@;
 			return -501  unless ($xmldoc);
 			$colmlist = $xmldoc->{select}->{columns}->{order};
@@ -3387,17 +3440,12 @@ sub load_columninfo
 		}
 		else
 		{
-			local (*FILE);
-			local ($/) = $self->{_record};    #JWT:SUPPORT ANY RECORD-SEPARATOR!
-		
-			open(FILE, $self->{file}) || return -501;
-			binmode FILE;         #20000404
 			my $colmlist = <FILE>;
 			chomp ($colmlist);
 			$colmlist =~ s/$self->{_read}/$sep/g;
 			@{$self->{order}} = split(/$sep/, $colmlist);
-			close FILE;
 		}
+		close FILE;
 	}
 #print "-lcm: returns =$colmlist=\n";
 	return $colmlist;
@@ -3417,10 +3465,10 @@ sub pscolfn
 		$errdetails = "$@/$? (file:$seq_file)";
 		return (-511);
 	}
-	$x = <FILE>;
+	my $x = <FILE>;
 	#chomp($x);
 	$x =~ s/\s+$//;   #20000113
-	($incval, $startval) = split(/,/,$x);
+	my ($incval, $startval) = split(/,/,$x);
 	close (FILE);
 	if ($id =~ /NEXTVAL/)
 	{
@@ -3521,11 +3569,13 @@ last;
 
 sub chkcolumnparms   #ADDED 20001218 TO CHECK FUNCTION PARAMETERS FOR FIELD-NAMES.
 {
+	my ($self) = shift;
 	my ($evalstr) = shift;
+
 	$evalstr =~ s/\\\'|\'\'/\x02\^2jSpR1tE\x02/g;   #PROTECT QUOTES W/N QUOTES.
 	$evalstr =~ s/\\\"|\"\"/\x02\^3jSpR1tE\x02/g;   #PROTECT QUOTES W/N QUOTES.
 	
-	$i = -1;
+	my $i = -1;
 	my (@strings);     #PROTECT ANYTHING BETWEEN QUOTES (FIELD NAMES IN LITERALS).
 	$evalstr =~ s/([\'\"])([^\1]*?)\1/
 			++$i;
@@ -3534,10 +3584,11 @@ sub chkcolumnparms   #ADDED 20001218 TO CHECK FUNCTION PARAMETERS FOR FIELD-NAME
 	/eg;
 
 	#FIND EACH FIELD NAME PARAMETER & REPLACE IT WITH IT'S VALUE || NAME || EMPTY-STRING.
-	$evalstr =~ s/($fieldregex)/
+	#$evalstr =~ s/($fieldregex)/   #CHGD. TO NEXT 20020530 + REMVD THIS VBLE.
+	$evalstr =~ s/($self->{fieldregex})/
 				my ($one) = $1;
 				$one =~ tr!a-z!A-Z!;
-				$res = (defined $_->{$one}) ? $_->{$one} : $one;
+				my $res = (defined $_->{$one}) ? $_->{$one} : $one;
 
 				#$res ||= '""';    #CHGD. TO NEXT (20020225)!
 				$res = '"'.$res.'"'  unless (${$self->{types}}{$one} =~ m#$NUMERICTYPES#i);

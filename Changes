@@ -179,3 +179,14 @@ Revision history for Perl extension DBD::Sprite.
 	  write it right back out as XML!  The new options are:  sprite_read, 
 	  sprite_write, and sprite_field.  The latter sets both to the same thing.
 	  sprite_record sets the record separator.
+0.35  Thu May 30
+	- Made global variable "CBC" an object variable fixing bug which caused 
+	  problems when one used both an encrypted database and an unencrypted one 
+	  in the same program (caught by me).  
+	- Added base-64 encoding to the new XML stuff and fixed up the encoding so 
+	  that binary data should now work properly both in and out.  Encoded 
+	  fields now have a 'xml:encoding="base64"' attribute.  Note:  the 
+	  "MIME::Base64" module is now a prerequisite if using XML.
+	- Restored the "sprite_sizelimit" attribute (alias for the "sprite_reclimit" 
+	  attribute) for backward compatability sake (I once used this in another 
+	  program and DBD::LDAP uses "ldap_sizelimit" - I can't remember why).

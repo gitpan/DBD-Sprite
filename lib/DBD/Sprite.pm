@@ -17,7 +17,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.34';
+$VERSION = '0.35';
 
 # Preloaded methods go here.
 
@@ -360,6 +360,7 @@ sub prepare
 	my ($silent) = $resptr->FETCH('PrintError');
 	$myspriteref->{silent} = ($silent ? 0 : 1);   #ADDED 20000103 TO SUPPRESS "OOPS" MSG ON WEBSITES!
 	$myspriteref->{sprite_reclimit} = (defined $attribs->{sprite_reclimit}) ? $attribs->{sprite_reclimit} : 0;  #ADDED 20020123.
+	$myspriteref->{sprite_sizelimit} = (defined $attribs->{sprite_sizelimit}) ? $attribs->{sprite_sizelimit} : 0;  #ADDED 20020530.
 
 	#SET UP STMT. PARAMETERS.
 	
