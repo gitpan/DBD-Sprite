@@ -10,7 +10,8 @@ WriteMakefile(
     'INC'	=> $DBI_INC_DIR,
     'dist'	=> { 'SUFFIX' => '.gz',
 		     'COMPRESS' => 'gzip -9f' },
-#    'realclean'	=> {FILES => '*.xsi'}
+    #'realclean'	=> '*.xsi'
+    'realclean'	=> {FILES => '*.xsi'}
 );
 
 package MY;

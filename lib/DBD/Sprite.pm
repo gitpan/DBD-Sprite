@@ -17,7 +17,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.44';
+$VERSION = '0.47';
 
 # Preloaded methods go here.
 
@@ -307,6 +307,7 @@ sub prepare
 	
 	DBI::set_err($resptr, 0, '');
 	
+	$sqlstr =~ s/^\s*listfields\s+(\w+)/select * from $1 where 1 = 0/i;  #ADDED 20030901.
 	my $csr = DBI::_new_sth($resptr, {
 		'Statement' => $sqlstr,
 	});
@@ -737,6 +738,7 @@ sub execute
 
 	my @l = split(/,/,$spriteref->{use_fields});
     $sth->STORE('NUM_OF_FIELDS',($#l+1));
+    my (@keyfields) = split(',', $spriteref->{key_fields}); #ADDED 20030520 TO IMPROVE NULLABLE.
 	unless ($spriteref->{TYPE})
 	{
 		@{$spriteref->{NAME}} = @l;
@@ -755,6 +757,14 @@ sub execute
 				${$spriteref->{SCALE}}[$i] = 0;
 			}
 			${$spriteref->{NULLABLE}}[$i] = 1;
+			foreach my $j (@keyfields)   #ADDED 20030520 TO IMPROVE NULLABLE.
+			{
+				if (${$spriteref->{NAME}}[$i] eq $j)
+				{
+					${$spriteref->{NULLABLE}}[$i] = 0;
+					last;
+				}
+			}
 		}
 	}
 
@@ -783,7 +793,6 @@ sub fetchrow_arrayref
 	my($sth) = @_;
 	my $data = $sth->FETCH('driver_data');
 	my $row = shift @$data;
-
 	return undef  if (!$row);
 	#my ($longreadlen) = $sth->{Database}->FETCH('LongReadLen');  #CHGD. TO NEXT 20020606 AS WORKAROUND FOR DBI::PurePerl;
 	my ($longreadlen) = $sth->{Database}->FETCH('LongReadLen') || 0;
@@ -885,7 +894,7 @@ __END__
 
 		Jim Turner
 		
-        Email: turnerjw@wwol.com
+        Email: jim.turner@lmco.com
 
     All rights reserved.
 

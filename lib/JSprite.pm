@@ -464,7 +464,7 @@ eval {require 'OraSpriteFns.pl';};
 use vars qw ($VERSION $LOCK_SH $LOCK_EX);
 ##--
 
-$JSprite::VERSION = '5.44';
+$JSprite::VERSION = '5.47';
 $JSprite::LOCK_SH = 1;
 $JSprite::LOCK_EX = 2;
 
@@ -488,7 +488,7 @@ sub new
     my $self;
 
     $self = {
-                commands     => 'select|update|delete|alter|insert|create|drop',
+                commands     => 'select|update|delete|alter|insert|create|drop|truncate',
 #                column       => '[A-Za-z0-9\~\x80-\xFF][\w\x80-\xFF]+',  #CHGD. TO NEXT 20020214 TO ALLOW 1-LETTER FIELD NAMES!!!! (HOW DID THIS GO ON FOR SO LONG?)
                 column       => '[A-Za-z0-9][\w\x80-\xFF]*',
 		_select      => '[\w\x80-\xFF\*,\s\~]+',
@@ -961,6 +961,7 @@ sub define_errors
     $errors->{'-530'} = 'Incorrect format in [create] command.'; #ADDED 20020222
     $errors->{'-531'} = 'Encryption of XML databases not supported.'; #ADDED 20020516.
     $errors->{'-532'} = 'XML requested, but XML::Simple module not available!'; #ADDED 20020516.
+    $errors->{'-533'} = 'Incorrect format in [truncate] statement.';
     $self->{errors} = $errors;
 
     return (1);
@@ -1286,7 +1287,6 @@ sub parse_columns
     local $SIG{'__WARN__'} = sub { $status = -510; $errdetails = "$_[0] at ".__LINE__ };
     local $^W = 0;
 	local ($_);
-#$| = 1;
     $status  = 1;
     $results = [];
     @columns = split (/,/, $column_string);
@@ -1524,7 +1524,8 @@ NOMATCHED1:
 						$errdetails = "$jj to ${$self->{lengths}}{$jj} chars";
 						return (-519);
 					}
-					if (${$self->{types}}{$jj} eq 'CHAR')
+					#if (${$self->{types}}{$jj} eq 'CHAR')  #CHGD. TO NEXT 20030812.
+					if (${$self->{types}}{$jj} eq 'CHAR' && length($rawvalue) > 0)
 					{
 						$values->{$jj} = "'" . sprintf(
 								'%-'.${$self->{lengths}}{$jj}.'s',
@@ -1611,9 +1612,20 @@ NOMATCHED1:
 				++$disthash{join("\x02\^2jSpR1tE\x02",@{$results->[$i]})};
 			}
 			@$results = ();
-			foreach my $i (keys(%disthash))
+			my $theresanull = 0;    #ADDED 20030930 TO HANDLE SINGLE NULL ELEMENT TO FIX _set_fbav ERROR!
+			foreach my $i (sort keys(%disthash))
 			{
-				push (@$results, [split(/\x02\^2jSpR1tE\x02/, $i)]);
+				if ($i eq '')   #(20030930) SINGLE NULL ELEMENT MUST GO ON *END* OF ARRAY!
+				{
+					$theresanull = 1;
+					next;
+				}
+#				push (@$results, [split(/\x02\^2jSpR1tE\x02/, $i)]);   #CHGD. TO NEXT 20031001 TO FIX _set_fbav ERROR!
+				push (@$results, [split(/\x02\^2jSpR1tE\x02/, $i, -1)]);
+			}
+			if ($theresanull)    #ADDED 20030930 TO HANDLE SINGLE NULL ELEMENT TO FIX _set_fbav ERROR!
+			{
+				push (@$results, '');
 			}
 		}
 		if (@$ordercols)   #COMPLETELY OVERHAULED 20020708 TO SUPPORT MULTIPLE ASCENDING/DESCENDING DECISIONS & SORTING ON COLUMNS NOT IN RESULT-SET!
@@ -2214,12 +2226,30 @@ sub drop
 		return $cfr  if ($cfr < 0);
 
 		@{$self->{records}} = ();    #ADDED 20021025 TO REMOVE DANGLING DATA (CAUSED TESTS TO FAIL AT 9)!
+		@{$self->{order}} = ();
+		%{$self->{types}} = ();
+		%{$self->{lengths}} = ();
+		%{$self->{scales}} = ();
+		%{$self->{defaults}} = ();
+		$self->{key_fields} = '';
+
+		#SOME DAY, I SHOULD ADD CODE TO DELETE DANGLING BLOB FILES!!!!!!!
+
 #		return (unlink $self->{file} || -501);  #NEXT 2 CHGD. TO FOLLOWING 20020606.
 #		return 
 		return (unlink $self->{file}) ? '0E0' : -501;
 	}
 	$errdetails = $query;
 	return (-501);
+}
+
+sub truncate
+{
+    my ($self, $query) = @_;
+	return $self->delete($query)
+			if ($query =~ s/^\s*truncate\s+table\s+/delete from /ios);
+	$errdetails = $query;
+	return (-533);	
 }
 
 sub delete_rows
@@ -2325,7 +2355,6 @@ sub create
 		%{$self->{lengths}} = ();
 		%{$self->{scales}} = ();
 		%{$self->{defaults}} = ();
-		$self->{key_fields} = join(',',@keyfields);
 		while (@fieldlist)
 		{
 			$i = shift(@fieldlist);
@@ -2340,6 +2369,8 @@ sub create
 			$i =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
 			$fieldname = $i;
 			$fieldname =~ s/=.*//;
+			#NEXT LINE ADDED 20030901 TO ALLOW PRIMARY-KEY ATTRIBUTE ON SAME LINE AS FIELD.
+			push (@keyfields, $fieldname)  if ($i =~ s/\s*PRIMARY\s+KEY\s*//i);
 			my ($tp,$len,$scale);
 			$i =~ s/\w+\=//;
 			$i =~ s/\s+//g;
@@ -2401,7 +2432,8 @@ sub create
 					$errdetails = "$fieldname to $len chars";
 					return (-519);
 				}
-				if ($tp eq 'CHAR')
+#				if ($tp eq 'CHAR')  #CHGD. TO NEXT 20030812.
+				if ($tp eq 'CHAR' && length($rawvalue) > 0)
 				{
 					$rawvalue = sprintf('%-'.$len.'s',$value);
 				}
@@ -2409,14 +2441,14 @@ sub create
 				{
 					$rawvalue = $value;
 				}
-				if ($tp eq 'CHAR')
-				{
-					$value = sprintf('%-'.$len.'s',$rawvalue);
-				}
-				else
-				{
-					$value = $rawvalue;
-				}
+#				if ($tp eq 'CHAR')  #REDUNDANT CODE REMOVED 20030812
+#				{
+#					$value = sprintf('%-'.$len.'s',$rawvalue);
+#				}
+#				else
+#				{
+#					$value = $rawvalue;
+#				}
 			}
 			push (@{$self->{order}}, $fieldname);
 			${$self->{types}}{$fieldname} = $tp;
@@ -2424,6 +2456,7 @@ sub create
 			${$self->{scales}}{$fieldname} = $scale;
 			${$self->{defaults}}{$fieldname} = $value;
 		}
+		$self->{key_fields} = join(',',@keyfields);
 		$self->{dirty} = 1;
 		@{$self->{records}} = ();    #ADDED 20021025 TO REMOVE DANGLING DATA (CAUSED TESTS TO FAIL AT 9)!
 
@@ -2612,7 +2645,8 @@ sub alter
 						$errdetails = "$fd to ${$self->{lengths}}{$fd} chars";
 						return (-519);
 					}
-					if (${$self->{types}}{$fd} eq 'CHAR')
+					#if (${$self->{types}}{$fd} eq 'CHAR')  #CHGD TO NEXT 20030812.
+					if (${$self->{types}}{$fd} eq 'CHAR' && length($self->{defaults}->{$fd}) > 0)
 					{
 						$val = sprintf('%-'.${$self->{lengths}}{$fd}.'s', 
 								$self->{defaults}->{$fd});
@@ -2927,7 +2961,8 @@ sub insert_data
 				$errdetails = "$column to ${$self->{lengths}}{$column} chars";
 				return (-519);
 			}
-			elsif (${$self->{types}}{$column} eq 'CHAR')   #ADDED 20000327!
+			#elsif (${$self->{types}}{$column} eq 'CHAR')   #CHGD. TO NEXT 20030812.
+			elsif (${$self->{types}}{$column} eq 'CHAR' && length($v) > 0)
 			{
 				$hash->{$column} = sprintf('%-'.${$self->{lengths}}{$column}.'s',$v);
 			}
@@ -3120,7 +3155,8 @@ END_XML
 
  	    foreach $column (@{ $self->{order} })
  	    {
-			if (${$self->{types}}{$column} eq 'CHAR') #20000224
+			#if (${$self->{types}}{$column} eq 'CHAR') #CHGD. TO NEXT 20030812.
+			if (${$self->{types}}{$column} eq 'CHAR' && length($record->{$column}) > 0)
 			{
 				$value = sprintf(
 						'%-'.${$self->{lengths}}{$column}.'s',
@@ -3246,6 +3282,7 @@ sub load_database
 				: keys(%{$xmldoc->{select}->{columns}->{column}});
 		foreach my $i (0..$#fields)
 		{
+			#$fields[$i] =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});  #DON'T *SEEM* TO NEED, BUT ADD IF NEEDED!
 			$self->{key_fields} .= ($fields[$i] . ',')
 					if ($xmldoc->{select}->{columns}->{column}->{$fields[$i]}->{key} 
 							eq 'PRIMARY');
