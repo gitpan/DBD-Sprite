@@ -463,7 +463,7 @@ eval {require 'OraSpriteFns.pl';};
 use vars qw ($VERSION $LOCK_SH $LOCK_EX);
 ##--
 
-$JSprite::VERSION = '5.20';
+$JSprite::VERSION = '5.22';
 $JSprite::LOCK_SH = 1;
 $JSprite::LOCK_EX = 2;
 
@@ -518,7 +518,8 @@ sub new
 		RaiseError   => 0,     #JWT: 20000114: ADDED DBI RAISEERROR HANDLING.
 		silent       => 0,
 		dirty			 => 0,     #JWT: 20000229: PREVENT NEEDLESS RECOMMITS.
-		StrictCharComp => 0    #JWT: 20010313: FORCES USER TO PAD STRING LITERALS W/SPACES IF COMPARING WITH "CHAR" TYPES.
+		StrictCharComp => 0,    #JWT: 20010313: FORCES USER TO PAD STRING LITERALS W/SPACES IF COMPARING WITH "CHAR" TYPES.
+		sprite_forcereplace => 0  #JWT: 20010912: FORCE DELETE/REPLACE OF DATAFILE (FOR INTERNAL WEBFARM USE)!
 	    };
 
     $self->{separator} = { Unix  => '/',    Mac => ':',   #JWT: BUGFIX.
@@ -777,13 +778,20 @@ sub commit
     $status = 1;
     return $status  unless ($self->{dirty});
 
-    if ($file) {
-	$full_path = $self->get_path_info ($file);
-	$full_path .= $self->{ext}  if ($self->{ext});  #JWT:ADD FILE EXTENSIONS.
-	$status    = $self->write_file ($full_path);
-
+#print "<BR>Sprite::Commit: file=$file= FILE=".$self->{file}."=\n";
+	if ($file)
+	{
+		$full_path = $self->get_path_info ($file);
+		$full_path .= $self->{ext}  if ($self->{ext});  #JWT:ADD FILE EXTENSIONS.
+	}
+	else   #ADDED 20010911 TO ASSIST IN HANDLING AUTOCOMMIT!
+	{
+		$full_path = $self->{file};
+#print "<BR>Sprite::Commit: using SPRITE FILE=".$self->{file}."= STATUS=$status=\n";
+	}
+#print "<BR>!!! COMMIT WRITING FILE =$full_path=\n";
+	$status = $self->write_file ($full_path);
 	$self->display_error ($status) if ($status <= 0);
-    }
 
 	return undef  if ($status <= 0);   #ADDED 20000103
 	$self->{dirty} = 0;
@@ -2096,6 +2104,7 @@ sub create
 
 		my ($new_file) = $self->get_path_info($seqfid) . '.seq';
 		$new_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
+		unlink ($new_file)  if ($self->{sprite_forcereplace} && -e $new_file);  #ADDED 20010912.
 		if (open (FILE, ">$new_file"))
 		{
 			print FILE "$incval,$startval\n";
@@ -2410,6 +2419,7 @@ $fieldregex = $self->{fieldregex};
 				if (/\s*(\w+).NEXTVAL\s*$/)
 				{
 					#open (FILE, ">$seq_file") || return (-511);
+					unlink ($seq_file)  if ($self->{sprite_forcereplace} && -e $seq_file);  #ADDED 20010912.
 					unless (open (FILE, ">$seq_file"))
 					{
 						$errdetails = "$@/$? (file:$seq_file)";
@@ -2567,6 +2577,8 @@ sub write_file
 	return 1  if $#{$self->{order}} < 0;  #ADDED 20000225 PREVENT BLANKING OUT TABLES, IE IF USER CREATES SEQUENCE W/SAME NAME AS TABLE, THEN COMMITS!
 	
 		#########$new_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
+#print "----- FORCE-REPLACE =".$self->{sprite_forcereplace}."=\n";  #ADDED 20010912!
+	unlink ($new_file)  if ($status >= 1 && $self->{sprite_forcereplace} && -e $new_file);  #ADDED 20010912.
     if ( ($status >= 1) && (open (FILE, ">$new_file")) ) {
 	binmode FILE;   #20000404
 
@@ -2639,7 +2651,8 @@ sub write_file
 			$record_string .= "$self->{_write}$value";
 	    }
 
-	    $record_string =~ s/^$self->{_write}//o;
+	    #$record_string =~ s/^$self->{_write}//o;  #CHGD TO NEXT LINE 20010917.
+	    $record_string =~ s/^$self->{_write}//;
 
 	    print FILE "$record_string$/";
 	}
@@ -2688,7 +2701,8 @@ sub load_database
 
     ($header)  = /^ *(.*?) *$/;
 	#####################$header =~ tr/a-z/A-Z/;   #JWT  20000316
-    @fields    = split (/$self->{_read}/o, $header);
+    #@fields    = split (/$self->{_read}/o, $header);  #CHGD TO NEXT LINE 20010917.
+    @fields    = split (/$self->{_read}/, $header);
     $no_fields = $#fields;
 
 	undef %{ $self->{types} };
@@ -2745,13 +2759,9 @@ sub load_database
 	chomp;
 	#chop;     #JWT:SUPPORT ANY RECORD-SEPARATOR!
 	next unless ($_);
-	#s/""/\\"/g;   #REMOVED 20000303.
 
-	#if (/['"\\]/) {
-    #        @record = $self->quotewords ($self->{_read}, 0, $_);
-    #    } else {
-            @record = split (/$self->{_read}/o, $_);
-    #    }
+	#@record = split (/$self->{_read}/o, $_);  #CHGD TO NEXT LINE 20010917.
+	@record = split (/$self->{_read}/, $_);
 
 	$hash = {};
 
@@ -2792,6 +2802,7 @@ sub pscolfn
 	if ($id =~ /NEXTVAL/)
 	{
 		#open (FILE, ">$seq_file") || return (-511);
+		unlink ($seq_file)  if ($self->{sprite_forcereplace} && -e $seq_file);  #ADDED 20010912.
 		unless (open (FILE, ">$seq_file"))
 		{
 			$errdetails = "$@/$? (file:$seq_file)";

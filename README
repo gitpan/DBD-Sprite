@@ -478,6 +478,10 @@ KNOWN BUGS
     *	    If fields specified in the "order-by" clause are not also 
 	    fetched, ordering does not work quite right :-(
 
+	*		AutoCommit=1 does not work (discovered 20010911)
+	*		Question marks in midst of bound parameters causes execute to fail.
+			(discovered 20010911)
+
 AUTHOR AND COPYRIGHT
     This module is Copyright (C) 2000 by
 
@@ -494,6 +498,85 @@ AUTHOR AND COPYRIGHT
 	JSprite.pm is a derived work by Jim Turner from Sprite.pm, a module 
 	written and copyrighted (c) 1995-1998, by Shishir Gurdavaram 
 	(shishir@ora.com).
+
+Changes
+
+Revision history for Perl extension DBD::Sprite.
+
+0.01  Fri Feb 25 13:00:55 2000
+	- original version; created by h2xs 1.18
+0.02  Fri Mar 03
+	- Fixed single-quote handling on bound parameters.
+0.07  Fri Apr 14
+	- Refixed test-14 failure (CHAR datatype).  Also create and alter 
+	  table commands should now work properly (save your table 1st! ;)
+0.08  Wed May 03
+	- Fix Windows glob problem for Perl2EXE
+	- Added missing file "OraSpriteFns.pl" to build
+0.09  Fri Jun 09
+	- Fix bug in DELETE which occassionally caused infinite loop.
+0.10  Wed Aug 16
+	- Fix bug involving "like" and field values containing regex-
+	  special characters, ie. ".".
+0.11  Thu Aug 31
+	- Fix regex bug in Sprite.pm and add error-checking for SQL 
+	- commands wo/space after table-name, ie "update table-name\n...".
+0.12  Tue Sep 05
+	- Add size fields are truncated to to "-519" error message.
+0.13  Tue Oct 10
+	- Fix CaseTableNames attribute to "sprite_CaseTableNames.
+	- Minor docs fix.
+0.14  Thu Oct 12
+	- Added Oracle TO_DATE and CONCAT functions.  Fixed bug now 
+	  allowing more than 1 argument for functions, and minor bug 
+	  which stripped wild-card chars from function results in "LIKE" 
+	  expressions.
+0.15  Thu Nov 02
+	- Fix bug that caused question marks in bound parameter values to be 
+	  treated as additional parameters.
+0.16  Thu Dec 21
+	- Fixed bug which would not allow lower-case versions of the "AND" and 
+	  "OR" operators.  Also made field-names used as right-values return 
+	  the appropriate value they represent rather than just a literal 
+	  string of the field name, ie. "update table set FIELD1 = FIELD2" 
+	  should now work properly instead of setting FIELD1 to "FIELD2" in 
+	  every record of "table".
+0.17  Fri Mar 09
+	- Fixed bug where types not returned for cursor after update, 
+	  Fixed bug where table names not returned if space appeared after 
+	  "table_name"?
+	- Fixed bug in "makesdb.pl" -- was encrypting wrong argument.
+0.18  Wed Mar 13
+	- Changed comparisens of literal data with "CHAR" fields to first 
+	  pad the literal with appropriate spaces so that eqality tests would 
+	  pass (to work like Oracle and the way DBIx-Recordset expects).
+	  Also added new option "StrictCharComp" to force the old behavior.
+	- Fixed bug that occasionally inserted a "0" instead of "" in numeric 
+	  fields when inserting NULL.  To get the proper "old" behavior, 
+	  specify a default of zero for each numeric field, ie.
+	  "NUMFIELD=NUMBER=0" in the top line of your Sprite table files.
+	- Added some code to check syntax of "where" clauses. (for DBIx-
+	  Recordset.
+	- Fixed a couple of other small bugs that DBIx-Recordset tests found.
+0.19  Wed Mar 21
+	- Fixed problem seeing all Windows file-names due to case-insensitivity 
+	  in Windows.
+0.20  Fri Aug 15
+	- Fixed bug involving autocommit on statements containing "select" in data. 
+	  Caught by Simon Elliott, Thanks!  Also fixed several other minor glitches.
+	- Fixed bug forbidding sequence files in mixed-case directories unless 
+	  CaseTableNames was set (CaseTableNames only applies to the file-name).
+	  Also added code to display "$@" and "$?" in the error details message on 
+	  -511 errors (could not [over]write file).
+0.21	 Wed Sep 12
+	- Fixed AutoCommit to actually work.  Caught by Jojo Kamote Escubil, Thanks,
+	  Jojo!  Also fixed another bug affecting quoted value strings containing 
+	  question marks (Caught by me!)
+0.22  Mon Sep 17
+	- Removed regex optimization (s///o) which caused record and field separators 
+	  to not work right when one opened a database, closed that database, then 
+	  opened a second database with different record and or field separators.
+	  Caught by Larry Yudelson, Thanks!
 
 SEE ALSO
 

@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.20';
+$VERSION = '0.22';
 
 # Preloaded methods go here.
 
@@ -101,9 +101,24 @@ sub connect {
 			chomp ($dbinputs[$i]);
 		}
 		my ($inputcnt) = $#dbinputs;
+		my ($dfltattrs, %dfltattr);
 		for ($i=0;$i<=$inputcnt;$i+=5)  #SHIFT OFF LINES UNTIL RIGHT USER FOUND.
 		{
 			last  if ($dbinputs[1] eq $dbuser);
+print "-???- dbinputs1=$dbinputs[1]= dbuser=$dbuser=\n";
+			if ($dbinputs[1] =~ s/^$dbuser\:(.*)/$dbuser/)
+			{
+				$dfltattrs = $1;
+print "-dfltattrs=$dfltattrs=\n";
+				eval "\%dfltattr = ($dfltattrs)";
+				foreach my $j (keys %dfltattr)
+				{
+print "-BEF: attr($j) =".$attr->{$j}."= dflt=$dfltattr{$j}=\n";
+					$attr->{$j} = $dfltattr{$j};
+print "-AFT: attr($j) =".$attr->{$j}."=\n";
+				}
+				last;
+			}
 			for ($j=0;$j<=4;$j++)
 			{
 				shift (@dbinputs);
@@ -121,7 +136,8 @@ sub connect {
 				$this->STORE('sprite_dbuser',$dbuser);
 				$this->STORE('sprite_dbpswd',$dbpswd);
 				close (DBFILE);
-				$this->STORE('sprite_autocommit',0);
+				#$this->STORE('sprite_autocommit',0);  #CHGD TO NEXT 20010912.
+				$this->STORE('sprite_autocommit',($attr->{AutoCommit} || 0));
 				$this->STORE('sprite_SpritesOpen',{});
 				my ($t) = $dbinputs[0];
 				$t =~ s#(.*)/.*#$1#;
@@ -144,6 +160,12 @@ sub connect {
 				$this->STORE('sprite_dbrdelim', eval("return(\"$dbinputs[4]\");") || "\n");
 				$this->STORE('sprite_attrhref', $attr);
 				$this->STORE('AutoCommit', ($attr->{AutoCommit} || 0));
+
+				#NOTE:  "PrintError" and "AutoCommit" are ON by DEFAULT!
+				#I KNOW OF NO WAY TO DETECT WHETHER AUTOCOMMIT IS SET BY 
+				#DEFAULT OR BY USER IN "AutoCommit => 1", THEREFORE I CAN'T 
+				#FORCE THE DEFAULT TO ZERO.  JWT
+
 				return $this;
 			}
 		}
@@ -307,6 +329,7 @@ sub prepare
 		#ABOVE CHANGED TO BELOW(1 LINE) 20001010!
 		$myspriteref->{CaseTableNames} = $resptr->{sprite_attrhref}->{sprite_CaseTableNames};
 		$myspriteref->{StrictCharComp} = $resptr->{sprite_attrhref}->{sprite_StrictCharComp};
+		$myspriteref->{sprite_forcereplace} = $resptr->{sprite_attrhref}->{sprite_forcereplace};  #ADDED 20010912.
 	}
 	$myspriteref->{LongTruncOk} = $resptr->FETCH('LongTruncOk');
 	my ($silent) = $resptr->FETCH('PrintError');
@@ -570,6 +593,7 @@ sub bind_param
 sub execute
 {
     my ($sth, @bind_values) = @_;
+
     my $params = (@bind_values) ?
         \@bind_values : $sth->FETCH('sprite_params');
 
@@ -587,13 +611,25 @@ sub execute
 		return undef;
     }
     my $sqlstr = $sth->{'Statement'};
+
+	#NEXT 8 LINES ADDED 20010911 TO FIX BUG WHEN QUOTED VALUES CONTAIN "?"s.
+    $sqlstr =~ s/\\\'/\x03/g;      #PROTECT ESCAPED DOUBLE-QUOTES.
+    $sqlstr =~ s/\'\'/\x04/g;      #PROTECT DOUBLED DOUBLE-QUOTES.
+	$sqlstr =~ s/\'([^\']*?)\'/
+			my ($str) = $1;
+			$str =~ s|\?|\x02|g;   #PROTECT QUESTION-MARKS WITHIN QUOTES.
+			"'$str'"/eg;
+	$sqlstr =~ s/\x04/\'\'/g;      #UNPROTECT DOUBLED DOUBLE-QUOTES.
+	$sqlstr =~ s/\x03/\\\'/g;      #UNPROTECT ESCAPED DOUBLE-QUOTES.
+
+	#CONVERT REMAINING QUESTION-MARKS TO BOUND VALUES.
+
     for (my $i = 0;  $i < $numParam;  $i++)
     {
 		$params->[$i] =~ s/\?/\x02/g;   #ADDED 20001023 TO FIX BUG WHEN PARAMETER OTHER THAN LAST CONTAINS A "?"!
         $sqlstr =~ s/\?/"'".$params->[$i]."'"/e;
     }
-	$sqlstr =~ s/\x02/\?/g;     #ADDED 20001023!
-	#@{$sth->{resv}} = $sth->{spritedb}->sql($sqlstr);
+	$sqlstr =~ s/\x02/\?/g;     #ADDED 20001023! - UNPROTECT PROTECTED "?"s.
 	my ($spriteref) = $sth->FETCH('sprite_spritedb');
 
 	#CALL JSPRITE TO DO THE SQL!
@@ -613,8 +649,8 @@ sub execute
 		my $dB = $sth->{Database};
 		if ($dB->FETCH('AutoCommit') == 1 && $sth->FETCH('Statement') !~ /^\s*select/i)
 		{
-			#$dB->STORE('AutoCommit',0);
-			$dB->STORE('AutoCommit',1);  #COMMIT DONE HERE!
+			$retval = undef  unless ($spriteref->commit());  #ADDED 20010911 TO MAKE AUTOCOMMIT WORK (OOPS :(  )
+			#$dB->STORE('AutoCommit',1);  #COMMIT DONE HERE!
 		}
 	}
 	else                     #SELECT SELECTED ZERO RECORDS.

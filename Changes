@@ -65,3 +65,12 @@ Revision history for Perl extension DBD::Sprite.
 	  CaseTableNames was set (CaseTableNames only applies to the file-name).
 	  Also added code to display "$@" and "$?" in the error details message on 
 	  -511 errors (could not [over]write file).
+0.21	 Wed Sep 12
+	- Fixed AutoCommit to actually work.  Caught by Jojo Kamote Escubil, Thanks,
+	  Jojo!  Also fixed another bug affecting quoted value strings containing 
+	  question marks (Caught by me!)
+0.22  Mon Sep 17
+	- Removed regex optimization (s///o) which caused record and field separators 
+	  to not work right when one opened a database, closed that database, then 
+	  opened a second database with different record and or field separators.
+	  Caught by Larry Yudelson, Thanks!
