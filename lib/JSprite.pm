@@ -463,7 +463,7 @@ eval {require 'OraSpriteFns.pl';};
 use vars qw ($VERSION $LOCK_SH $LOCK_EX);
 ##--
 
-$JSprite::VERSION = '5.19';
+$JSprite::VERSION = '5.20';
 $JSprite::LOCK_SH = 1;
 $JSprite::LOCK_EX = 2;
 
@@ -630,7 +630,6 @@ sub get_path_info
 	$path .= $separator;
 	$full  = $path . $name;
     }
-
     return wantarray ? ($path, $name) : $full;
 }
 
@@ -1144,14 +1143,15 @@ $self->{use_fields} = $column_string;    #JWT
 sub parse_columns
 {
     my ($self, $command, $column_string, $condition, $values, 
-			$ordercols, $descorder, $fields) = @_;
+			$ordercols, $descorder, $fields, $distinct) = @_;
     my ($i, $j, $k, $rowcnt, $status, @columns, $single, $loop, $code, $column);
 	my (%colorder, $rawvalue);
-	
+#print "-parse_columns: at=".join('|',@_)."= distinct=$distinct=\n";
 	local $results = undef;
 
 	my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
 	my (%valuenames);  #ADDED 20001218 TO ALLOW FIELD-NAMES AS RIGHT-VALUES.
+
 	foreach $i (keys %$values)
 	{
 		$valuenames{$i} = $values->{$i};
@@ -1181,12 +1181,12 @@ $| = 1;
 	{
 		next unless (defined $self->{records}->[$loop]);    #JWT: DON'T RETURN BLANK DELETED RECORDS.
 		$_ = $self->{records}->[$loop];
-#print "->>>>> condition=$condition=\n";
 #foreach my $xxx (keys(%{$_})) {print STDERR "-value($xxx) =$_->{$xxx}=\n";};
 #print STDERR "->>>>> condition=$condition=\n";
+#print "<BR> condition=$condition=\n";
 		$@ = '';
 		if ( !$condition || (eval $condition) ) {
-#print "-- CONDITION RETURNED TRUE! res=$@=\n";
+#print "<BR>-- CONDITION RETURNED TRUE! res=$@=\n";
 #print STDERR "-!!!!!- CONDITION RETURNED TRUE!\n";
 		    if ($command eq 'select')
 		    {
@@ -1264,7 +1264,6 @@ NOMATCHED1:
 				{
 					$rawvalue =~ s/^\'(.*)\'\s*$/$1/  if ($values->{$jj} =~ /^\'/);
 				}
-					
 				#if (${$self->{types}}{$jj} =~ /$NUMERICTYPES/)  #CHGD TO NEXT LINE 20010313.
 				if (length($rawvalue) > 0 && ${$self->{types}}{$jj} =~ /$NUMERICTYPES/)
 				{
@@ -1305,12 +1304,10 @@ NOMATCHED1:
 				}
 			}
 			map { $code .= qq|\$_->{'$_'} = $values->{$_};| } @columns;
-#print "-PARSE_COLUMNS: eval=$code=\n";
 	                eval $code;
 					return (-517)  if ($@);
-#print "-PARSE_COLUMNS: got thru eval!\n";
 		    } elsif ($command eq 'add') {
-			$_->{$single} = '';   #ORACLE DOES NOT SET EXISTING RECORDS TO DEFAULT VALUE!
+				$_->{$single} = '';   #ORACLE DOES NOT SET EXISTING RECORDS TO DEFAULT VALUE!
 	
 		    } elsif ($command eq 'drop') {
 			delete $_->{$single};
@@ -1335,7 +1332,21 @@ NOMATCHED1:
 	{
 		return $rowcnt;
     } else {
-
+#print "-???- dist=$distinct=\n";
+		if ($distinct)   #THIS IF ADDED 20010521 TO MAKE "DISTINCT" WORK.
+		{
+			my (%disthash);
+			for (my $i=0;$i<=$#$results;$i++)
+			{
+				++$disthash{join("\x02",@{$results->[$i]})};
+			}
+			@$results = ();
+			foreach my $i (keys(%disthash))
+			{
+				push (@$results, [split(/\x02/, $i)]);
+#print "-results=$i=\n";			
+			}
+		}
 		if (@$ordercols)
 		{
 			$rowcnt = 0;
@@ -1488,6 +1499,8 @@ sub select
     $path  = $self->{path};
 $fieldregex = $self->{fieldregex};
 
+	my $distinct;   #NEXT 2 ADDED 20010521 TO ADD "DISTINCT" CAPABILITY!
+	$distinct = 1  if ($query =~ /^select\s+distinct/);
 	$query =~ s/^select\s+distinct(\s+\w|\s*\(|\s+\*)/select $1/i;
 
 	#HANDLE SELECTS WITH JUST FIELD NAMES (NO FUNCTIONS) FAST.
@@ -1582,7 +1595,7 @@ END_CODE
 		$self->check_columns ($columns) || return (-502);
 	
 		$values_or_error = $self->parse_columns ('select', $columns, 
-				$condition, '', \@ordercols, $descorder);    #JWT
+				$condition, '', \@ordercols, $descorder, 0, $distinct);    #JWT
 		return $values_or_error;
     }
     elsif  ($query =~ /^select\s+   #HANDLE 1 OR MORE FUNCTIONS IN SELECT. (20000306)
@@ -1687,7 +1700,7 @@ END_CODE
 		$self->check_columns ($columns) || return (-502);
 		$self->{use_fields} = join (',', @{ $self->{order} }[0..$#fields], );
 		$values_or_error = $self->parse_columns ('select', $columns, 
-				$condition, '', \@ordercols, $descorder, \@fields);    #JWT
+				$condition, '', \@ordercols, $descorder, \@fields, $distinct);    #JWT
 		return $values_or_error;
     } 
     else     #INVALID SELECT STATEMENT!
@@ -1701,7 +1714,9 @@ sub update
     my ($self, $query) = @_;
     my ($i, $path, $regex, $table, $extra, $condition, $all_columns, 
 	$columns, $status);
+#print "<BR>query=$query=\n";
 	my ($psuedocols) = "CURVAL|NEXTVAL";
+
     ##++
     ##  Hack to allow parenthesis to be escaped!
     ##--
@@ -1713,6 +1728,13 @@ sub update
     if ($query =~ /^update\s+($path)\s+set\s+(.+)$/io) {
 	($table, $extra) = ($1, $2);
 
+	#ADDED IF-STMT 20010418 TO CATCH 
+			#PARENTHESIZED SET-CLAUSES (ILLEGAL IN ORACLE & CAUSE WIERD PARSING ERRORS!)
+	if ($extra =~ /^\(.+\)\s*where/)
+	{
+		$errdetails = 'parenthesis around SET clause?';
+		return (-504);
+	}
 	$thefid = $table;
 	$self->check_for_reload ($table) || return (-501);
 	return (-511)  unless (-w $self->{file});   #ADDED 19991207!
@@ -1733,7 +1755,6 @@ sub update
 	$extra =~ s/^\s+//;  #STRIP OFF SURROUNDING SPACES.
 	$extra =~ s/\s+$//;
 	#NOW TEMPORARILY PROTECT COMMAS WITHIN (), IE. FN(ARG1,ARG2).
-
 	$column = $self->{column};
 	$extra =~ s/($column\s*\=\s*)\'(.*?)\'(,|$)/
 		my ($one,$two,$three) = ($1,$2,$3);
@@ -1758,16 +1779,20 @@ sub update
 		$expns[$i] =~ s/\x06/\(/g;
 		$expns[$i] =~ s/\x07/\)/g;
 		$expns[$i] =~ s/\=\s*'([^']*?)where([^']*?)'/\='$1\x05$2'/gi;
-	$expns[$i] =~ s/\'(.*?)\'/my ($j)=$1; 
+		$expns[$i] =~ s/\'(.*?)\'/my ($j)=$1; 
 			$j=~s|where|\x05|g; 
 		"'$j'"/eg;
 	}
 	$extra = $expns[$#expns];    #EXTRACT WHERE-CLAUSE, IF ANY.
+#print "<BR>extra=$extra=\n";
 	$condition = ($extra =~ s/(.*)where(.+)$/where$1/i) ? $2 : '';
 	$condition =~ s/\s+//;
 	####$condition =~ s/^\((.*)\)$/$1/g;  #REMOVED 20010313 SO "WHERE ((COND) OP (COND) OP (COND)) WOULD WORK FOR DBIX-RECORDSET. (SELECT APPEARS TO WORK WITHOUT THIS).
 	#$expns[$#expns] =~ s/where(.+)$//i;
 	$expns[$#expns] =~ s/\s*where(.+)$//i;   #20000108 REP. PREV. LINE 2FIX BUG IF LAST COLUMN CONTAINS SINGLE QUOTES.
+	##########$expns[$#expns] =~ s/\s*\)\s*$//i;   #20010416: ADDED TO FIX BUG WHERE LAST ")" BEFORE "WHERE" NOT STRIPPED!
+	##########ABOVE NOT A BUG -- MUST NOT USE PARINS AROUND UPDATE CLAUSE, IE. 
+	##########"update table set (a = b, c = d) where e = f" is INVALID (IN ORACLE ALSO!!!!!!!!
 	$column = $self->{column};
 	$condition = $self->parse_expression ($condition);
 	$columns = '';   #ADDED 20010228. (THESE CHGS FIXED INCORRECT ORDER BUG FOR "TYPE", "NAME", ETC. LISTS IN UPDATES).
@@ -1786,10 +1811,10 @@ sub update
 			$all_columns->{$var} =~ s/\x02/\\\\/g;
 			#$all_columns->{$var} =~ s/\x03/\'\'/g;
 			$all_columns->{$var} =~ s/\x03/\'/g;   #20000108 REPL. PREV. LINE - NO NEED TO DOUBLE QUOTES (WE ESCAPE THEM) - THIS AIN'T ORACLE.
+#print "<BR>--- ac($var)=$all_columns->{$var}=\n";
 			#$all_columns->{$var} =~ s/\x04/\"\"/g;   #REMOVED 20000303.
 		!e;
 	}
-
 	#$columns   = join (',', keys %$all_columns);  #NEXT 2 CHGD TO 3RD LINE 20010228.
 	#$columns =~ tr/a-z/A-Z/;   #JWT
 	chop($columns);   #ADDED 20010228.
@@ -2058,6 +2083,7 @@ sub create
 		}
 		else
 		{
+			$errdetails = "$@/$? (file:$new_file)";
 			return -511;
 		}
 	}
@@ -2077,6 +2103,7 @@ sub create
 		}
 		else
 		{
+			$errdetails = "$@/$? (file:$new_file)";
 			return -511;
 		}
 	}
@@ -2323,7 +2350,7 @@ sub insert
 	$columns =~ s/\s//g;
 	$columns = join(',', @{ $self->{order} })  unless ($columns =~ /\S/);  #JWT
 	#$self->check_for_reload ($table) || return (-501);
-	return (-511)  unless (-w $self->{file});   #ADDED 19991207!
+	return (-511)  unless (-w $self->{file});
 $fieldregex = $self->{fieldregex};
 	unless ($columns =~ /\S/)
 	{
@@ -2367,8 +2394,13 @@ $fieldregex = $self->{fieldregex};
 					|| $values[$i] =~ /\s*(\w+).CURVAL\s*$/)
 			{
 				my ($seq_file) = $self->get_path_info($1) . '.seq';
-				$seq_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
-				open (FILE, "<$seq_file") || return (-511);
+				#### REMOVED 20010814 - ALREAD DONE IN GET_PATH_INFO!!!! ####$seq_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
+				#open (FILE, "<$seq_file") || return (-511);
+				unless (open (FILE, "<$seq_file"))
+				{
+					$errdetails = "$@/$? (file:$seq_file)";
+					return (-511);
+				}
 				$x = <FILE>;
 				#chomp($x);
 				$x =~ s/\s+$//;   #20000113  CHOMP WON'T WORK HERE IF RECORD DELIMITER SET TO OTHER THAN \n!
@@ -2377,7 +2409,12 @@ $fieldregex = $self->{fieldregex};
 				$_ = $values[$i];
 				if (/\s*(\w+).NEXTVAL\s*$/)
 				{
-					open (FILE, ">$seq_file") || return (-511);
+					#open (FILE, ">$seq_file") || return (-511);
+					unless (open (FILE, ">$seq_file"))
+					{
+						$errdetails = "$@/$? (file:$seq_file)";
+						return (-511);
+					}
 					$incval += ($startval || 1);
 					print FILE "$incval,$startval\n";
 					close (FILE);
@@ -2614,7 +2651,7 @@ sub write_file
 
         $self->unlock || $self->display_error (-516);
     } else {
-	$status = ($status < 1) ? $status : -511;
+		$status = ($status < 1) ? $status : -511;
     }
     return $status;
 }
@@ -2741,7 +2778,12 @@ sub pscolfn
 	$seq_file = $self->get_path_info($seq_file) . '.seq';
 
 	$seq_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
-	open (FILE, "<$seq_file") || return (-511);
+	#open (FILE, "<$seq_file") || return (-511);
+	unless (open (FILE, "<$seq_file"))
+	{
+		$errdetails = "$@/$? (file:$seq_file)";
+		return (-511);
+	}
 	$x = <FILE>;
 	#chomp($x);
 	$x =~ s/\s+$//;   #20000113
@@ -2749,7 +2791,12 @@ sub pscolfn
 	close (FILE);
 	if ($id =~ /NEXTVAL/)
 	{
-		open (FILE, ">$seq_file") || return (-511);
+		#open (FILE, ">$seq_file") || return (-511);
+		unless (open (FILE, ">$seq_file"))
+		{
+			$errdetails = "$@/$? (file:$seq_file)";
+			return (-511);
+		}
 		$incval += ($startval || 1);
 		print FILE "$incval,$startval\n";
 		close (FILE);

@@ -406,7 +406,7 @@ Driver private methods
         Example:
 
             my($dbh) = DBI->connect("DBI:Sprite:mydatabase",'me','mypswd');
-            my(@list) = $dbh->func('list_tables');
+            my(@list) = $dbh->func('tables');
 
 Other Utilities
 

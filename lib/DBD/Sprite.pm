@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.19';
+$VERSION = '0.20';
 
 # Preloaded methods go here.
 
@@ -184,7 +184,23 @@ END_CODE
 	eval $code;
 	$code =~ s/\.sdb([\>\$])/\.SDB$1/g;   #HANDLE WINDOWSEY FILENAMES :(
 	eval $code;
-
+	unless (@dsources)
+	{
+		if (defined $ENV{HOME})
+		{
+			$path = "$ENV{HOME}/*.sdb";
+			my $code = "while (my \$i = <$path>)\n";
+			$code .= <<'END_CODE';
+			{
+				chomp ($i);
+				push (@dsources,"DBI:Sprite:$1")  if ($i =~ m#([^\/\.]+)\.sdb$#);
+			}
+END_CODE
+			eval $code;
+			$code =~ s/\.sdb([\>\$])/\.SDB$1/g;   #HANDLE WINDOWSEY FILENAMES :(
+			eval $code;
+		}
+	}
 	return (@dsources);
 }
 
@@ -595,9 +611,9 @@ sub execute
 	{
 		$retval = $resv[0];
 		my $dB = $sth->{Database};
-		if ($dB->FETCH('AutoCommit') == 1 && $sth->FETCH('Statement') !~ /\s*select/i)
+		if ($dB->FETCH('AutoCommit') == 1 && $sth->FETCH('Statement') !~ /^\s*select/i)
 		{
-			$dB->STORE('AutoCommit',0);
+			#$dB->STORE('AutoCommit',0);
 			$dB->STORE('AutoCommit',1);  #COMMIT DONE HERE!
 		}
 	}
@@ -1201,7 +1217,7 @@ I<Return Value>
         Example:
 
             my($dbh) = DBI->connect("DBI:Sprite:mydatabase",'me','mypswd');
-            my(@list) = $dbh->func('list_tables');
+            my(@list) = $dbh->func('tables');
 
 	JSprite::fn_register ('myfn',__PACKAGE__);
 		This method takes the name of a user-defined data-conversion function 

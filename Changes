@@ -58,4 +58,10 @@ Revision history for Perl extension DBD::Sprite.
 0.19  Wed Mar 21
 	- Fixed problem seeing all Windows file-names due to case-insensitivity 
 	  in Windows.
-
+0.20  Fri Aug 15
+	- Fixed bug involving autocommit on statements containing "select" in data. 
+	  Caught by Simon Elliott, Thanks!  Also fixed several other minor glitches.
+	- Fixed bug forbidding sequence files in mixed-case directories unless 
+	  CaseTableNames was set (CaseTableNames only applies to the file-name).
+	  Also added code to display "$@" and "$?" in the error details message on 
+	  -511 errors (could not [over]write file).
