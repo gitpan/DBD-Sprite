@@ -31,4 +31,11 @@ Revision history for Perl extension DBD::Sprite.
 0.15  Thu Nov 02
 	- Fix bug that caused question marks in bound parameter values to be 
 	  treated as additional parameters.
+0.16  Thu Dec 21
+	- Fixed bug which would not allow lower-case versions of the "AND" and 
+	  "OR" operators.  Also made field-names used as right-values return 
+	  the appropriate value they represent rather than just a literal 
+	  string of the field name, ie. "update table set FIELD1 = FIELD2" 
+	  should now work properly instead of setting FIELD1 to "FIELD2" in 
+	  every record of "table".
 

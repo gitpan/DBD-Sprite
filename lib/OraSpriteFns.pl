@@ -1,21 +1,22 @@
 sub SUBSTR
 {
+	#@_ = &chkcolumnparms(@_);
 	my ($s) = shift;
 	my ($p) = shift;
+	#($s, $p) = &chkcolumnparms(@_);
 
 	return ''  unless ($p);
 
 	--$p  if ($p > 0);
 
 	my ($l) = shift;
-#print "-s=$s= p=$p= l=$l=\n";
-#print "-lllllllllllllll=$l=\n"  unless ($l);
 	return (substr($s, $p))  unless ($l);
 	return substr($s, $p, $l);
 }
 
 sub LOWER
 {
+	#@_ = &chkcolumnparms(@_);
 	my ($s) = shift;
 	$s =~ tr/A-Z/a-z/;
 	return $s;
@@ -23,6 +24,7 @@ sub LOWER
 
 sub UPPER
 {
+	#@_ = &chkcolumnparms(@_);
 	my ($s) = shift;
 	$s =~ tr/a-z/A-Z/;
 	return $s;
@@ -30,7 +32,7 @@ sub UPPER
 
 sub TO_DATE
 {
-#print "<BR>TO_DATE called!\n";
+	#@_ = &chkcolumnparms(@_);
 	do 'to_date.pl';
 	if ($err =~ /^Invalid/)
 	{
@@ -38,13 +40,13 @@ sub TO_DATE
 		$rtnTime = '';
 		$self->display_error(-503);
 	}
-#print "<BR>err=$err= rtn=$rtnTime=\n";
 	return $rtnTime;
 }
 
 sub CONCAT
 {
-#print "<BR>concat: args=$_[0]+$_[1]=\n";
+
+	#@_ = &chkcolumnparms(@_);
 	return $_[0].$_[1];
 }
 

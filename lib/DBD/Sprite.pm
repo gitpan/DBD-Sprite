@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.15';
+$VERSION = '0.16';
 
 # Preloaded methods go here.
 
@@ -39,6 +39,10 @@ sub driver{
 				   'Attribution' => 'DBD::Sprite by Shishir Gurdavaram & Jim Turner',
 				 });
     $drh;
+}
+
+sub DESTROY   #ADDED 20001108
+{
 }
 
 #sub AUTOLOAD {
@@ -393,7 +397,8 @@ sub do
 
 	DBI::set_err($dB, 0, '');
 	
-	return ($csr->execute(@bind_values) or undef);
+	#my $retval = $csr->execute(@bind_values) || undef;
+	return ($csr->execute(@bind_values) || undef);
 }
 
 sub table_info
@@ -422,6 +427,24 @@ sub tables   #CONVENIENCE METHOD FOR FETCHING LIST OF TABLES IN THE DATABASE.
 	$sth->finish();
 	return undef  unless ($#tables >= 0);
 	return (@tables);
+}
+
+sub rows
+{
+	return $DBI::rows;
+}
+
+sub DESTROY   #ADDED 20001108 
+{
+    my($drh) = shift;
+    
+	if ($drh->FETCH('AutoCommit') == 1)
+	{
+		$drh->STORE('AutoCommit',0);
+		$drh->rollback();                #COMMIT IT IF AUTOCOMMIT ON!
+		$drh->STORE('AutoCommit',1);
+	}
+	$drh = undef;
 }
 
 1;
@@ -497,7 +520,6 @@ sub execute
 	#CALL JSPRITE TO DO THE SQL!
 
 	my (@resv) = $spriteref->sql($sqlstr);
-	
 	#!!! HANDLE SPRITE ERRORS HERE (SEE SPRITE.PM)!!!
 	
 	my ($retval) = undef;
@@ -516,7 +538,6 @@ sub execute
 			$dB->STORE('AutoCommit',0);
 			$dB->STORE('AutoCommit',1);  #COMMIT DONE HERE!
 		}
-		
 	}
 	else                     #SELECT SELECTED ZERO RECORDS.
 	{
@@ -529,7 +550,21 @@ sub execute
 	
 	#EVERYTHING WORKED, SO SAVE SPRITE RESULT (# ROWS) AND FETCH FIELD INFO.
 	
-    $sth->{'driver_rows'} = $resv[0]; # number of rows
+	 if ($retval)
+	 {
+		$sth->{'driver_rows'} = $retval; # number of rows
+		$sth->{'sprite_rows'} = $retval; # number of rows
+		$sth->STORE('sprite_rows', $retval);
+		$sth->STORE('driver_rows', $retval);
+	 }
+	 else
+	 {
+		$sth->{'driver_rows'} = 0; # number of rows
+		$sth->{'sprite_rows'} = 0; # number of rows
+		$sth->STORE('sprite_rows', 0);
+		$sth->STORE('driver_rows', 0);
+	 }
+
     #### NOTE #### IF THIS FAILS, IT PROBABLY NEEDS TO BE "sprite_rows"?
     
 	shift @resv;   #REMOVE 1ST COLUMN FROM DATA RETURNED (THE SPRITE RESULT).
@@ -552,7 +587,7 @@ sub execute
 		
     $sth->{'driver_data'} = \@resv;
     $sth->STORE('sprite_data', \@resv);
-    $sth->STORE('sprite_rows', ($#resv+1)); # number of rows
+    #$sth->STORE('sprite_rows', ($#resv+1)); # number of rows
 	$sth->{'TYPE'} = \@{$spriteref->{TYPE}};
 	$sth->{'NAME'} = \@{$spriteref->{NAME}};
 	$sth->{'PRECISION'} = \@{$spriteref->{PRECISION}};
@@ -600,7 +635,11 @@ sub fetchrow_arrayref
 }
 
 *fetch = \&fetchrow_arrayref; # required alias for fetchrow_arrayref
-sub rows { my($sth) = @_; $sth->FETCH('driver_rows'); }
+sub rows
+{
+	my($sth) = @_;
+	return $sth->FETCH('driver_rows') or $sth->FETCH('sprite_rows');
+}
 #### NOTE #### IF THIS FAILS, IT PROBABLY NEEDS TO BE "sprite_rows"?
 
 
