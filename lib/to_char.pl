@@ -1,22 +1,26 @@
 my ($s) = $_[0];
-my ($fmt) = $_[1];
+my ($fmt) = $_[1] || 'dd-MON-rr';
 
 $err = '';
 $rtnTime = '';
 
 my (@timevals) = localtime($s);
+
 foreach my $f (qw(month mon Month Mon MONTH MON))
 {
 	$fmt =~ s/($f)/&{$f}($1)/eg;
 	last  if ($err)	;
 }
-foreach my $f (qw(ddd dd yyyy hh24 hh mi mm sssss ss a rm rr))
+foreach my $f (qw(ddd dd yyyy yy hh24 hh mi mm sssss ss rm rr))
 {
 	$fmt =~ s/($f)/&{$f}($1)/egi;
 	last  if ($err)	;
 }
 
+$fmt =~ s/\b(a)([\.m]?)\b/&a($1).$2/egi;
+
 $fmt =~ s/([0\$BSCL]*)([9D\.\,GV]+)(\s*CR|PR|EEEE)/&fmt9($1,$2,$3)/eg;
+
 $rtnTime = $fmt;
 
 
@@ -76,6 +80,7 @@ sub Month
 			'May      ', 'June     ', 'July     ', 'August   ',
 			'September', 'October  ', 'November ', 'December ');
 
+	my $indx = shift;
 	return $months[$timevals[4]];
 }
 
@@ -86,6 +91,7 @@ sub MONTH
 			'MAY      ', 'JUNE     ', 'JULY     ', 'AUGUST   ',
 			'SEPTEMBER', 'OCTOBER  ', 'NOVEMBER ', 'DECEMBER ');
 
+	my $indx = shift;
 	return $months[$timevals[4]];
 }
 
@@ -94,6 +100,7 @@ sub mon
 	my @months = ('jan', 'feb', 'mar', 'apr', 'may', 'jun', 
 			'jul', 'aug', 'sep', 'oct', 'nov', 'dec');
 
+	my $indx = shift;
 	return $months[$timevals[4]];
 }
 
@@ -102,6 +109,7 @@ sub Mon
 	my @months = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
 			'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec');
 
+	my $indx = shift;
 	return $months[$timevals[4]];
 }
 
@@ -110,6 +118,7 @@ sub MON
 	my @months = ('JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 
 			'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC');
 
+	my $indx = shift;
 	return $months[$timevals[4]];
 }
 
@@ -118,6 +127,7 @@ sub rm
 	my @months = ('i', 'ii', 'iii', 'iv', 'v', 'vi', 
 			'vii', 'viii', 'ix', 'x', 'xi', 'xii');
 
+	my $indx = shift;
 	return $months[$timevals[4]];
 }
 
@@ -128,14 +138,14 @@ sub mm
 	return $t;
 }
 
-sub yyyymmdd
-{
-	return '';
-}
-
 sub yyyy
 {
 	return $timevals[5] + 1900;
+}
+
+sub yy
+{
+	return &rr;
 }
 
 sub rr

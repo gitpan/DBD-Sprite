@@ -1,11 +1,38 @@
+use Time::Local;
+
 sub ABS
 {
 	return abs(shift);
 }
 
+sub ADD_MONTHS
+{
+	my ($d, $n) = @_;
+	my @timestuff = localtime($d);
+	my ($mday) = $timestuff[3];
+	$d += (30*86400)*$n;
+	@timestuff = localtime($d);
+	my $thisdate = $timestuff[5] + 1900;
+	$thisdate .= '0'  if ($timestuff[4] < 9);
+	$thisdate .= $timestuff[4] + 1;
+	$thisdate .= '0'  if ($mday < 10);
+	$thisdate .= $mday;
+    my $xx = timelocal(0,0,0,substr($thisdate,6,2),
+                        (substr($thisdate,4,2)-1),substr($thisdate,0,4),0,0,0);
+	return $xx;
+
+}
+
 sub ASCII
 {
 	return ord(shift);
+}
+
+sub CEIL
+{
+	my $n = shift;
+	return int($n) + 1  if ($n > int($n));
+	return int($n);
 }
 
 sub CHR
@@ -26,9 +53,23 @@ sub COS
 	return cos(shift);
 }
 
+sub DAYS_BETWEEN   #SPRITE-ONLY FUNCTION.
+{
+	my ($d1, $d2) = @_;
+	my ($secbtn) = abs($d2 - $d1);
+	return $secbtn / 86400;
+}
+
+sub EXP
+{
+	return 2.71828183 ** shift;
+}
+
 sub FLOOR
 {
-	return int(shift);
+	my $n = shift;
+	return int($n) - 1  if ($n < 0 && $n < int($n));
+	return int($n);
 }
 
 sub INITCAP
@@ -36,6 +77,69 @@ sub INITCAP
 	my ($s) = shift;
 	$s =~ s/\b(\w)(\w*)/\U$1\L$2\E/g;
 	return $s;
+}
+
+sub INSTR
+{
+	my ($s, $srch, $n, $m) = @_;
+	my $t = $n;
+	if ($n < 0)
+	{
+		$s = reverse($s);
+		$srch = reverse($srch);
+		$t = abs($n);
+	}
+	for (my $i=1;$i<=$m;$i++)
+	{
+		$t = index($s, $srch, $t) + 1;
+		return 0  if ($t < 0);
+	}
+	return length($s) - $t  if ($n < 0);
+	return $t;	
+}
+
+sub INSTRB
+{
+	return INSTR(@_);
+}
+
+sub LAST_DAY
+{
+	my ($t) = shift;
+
+	my @timestuff = localtime($t);
+	my @lastdate = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31);
+	my $thisdate = $timestuff[5] + 1900;
+	$thisdate .= '0'  if ($timestuff[4] < 9);
+	$thisdate .= $timestuff[4] + 1;
+	#$thisdate .= '0'  if ($timestuff[3] < 10);
+	#$thisdate .= $timestuff[3];
+	if ($timestuff[4] == 1)
+	{
+		if (!(($timestuff[5]+300) % 400))
+		{
+			$thisdate .= '29';
+		}
+		elsif (!($timestuff[5] % 100))
+		{
+			$thisdate .= '28';
+		}
+		elsif (!($timestuff[5] % 4))
+		{
+			$thisdate .= '29';
+		}
+		else
+		{
+			$thisdate .= '28';
+		}
+	}
+	else
+	{
+		$thisdate .= $lastdate[$timestuff[4]];
+	}
+    my $xx = timelocal(0,0,0,substr($thisdate,6,2),
+                        (substr($thisdate,4,2)-1),substr($thisdate,0,4),0,0,0);
+	return $xx;
 }
 
 sub LENGTH
@@ -46,6 +150,13 @@ sub LENGTH
 sub LENGTHB
 {
 	return length(shift);
+}
+
+sub LPAD
+{
+	my ($s, $l, $p) = @_;
+	my $t = $p x $l;
+	return substr($t,0,($l-length($s))) . $s;
 }
 
 sub LTRIM
@@ -68,6 +179,25 @@ sub MOD
 	my ($m, $n) = @_;
 	return $m  unless ($n);
 	return $m % $n;
+}
+
+sub MONTHS_BETWEEN   #ASSUMES 30-DAY MONTHS - APPROXIMATES THE ORACLE FUNCTION!
+{
+	my ($d1, $d2) = @_;
+	my ($secbtn) = abs($d2 - $d1);
+	return $secbtn / (30*86400);
+}
+
+sub NVL
+{
+	my (@parms) = @_;
+	my ($t);
+	while ($#parms >= 0)
+	{
+		$t = shift(@parms);
+		return $t  if (defined($t) && $t ne '');
+	}
+	return defined($t) ? $t : '';
 }
 
 sub POWER
@@ -97,6 +227,16 @@ sub ROUND
 	return (1 * sprintf('%.0f', $m)) / (10 ** $n);
 }
 
+sub RPAD
+{
+	my ($s, $l, $p) = @_;
+	while (length($s) < $l)
+	{
+		$s .= $p;
+	}
+	return substr($s, 0, $l);
+}
+
 sub RTRIM
 {
 	my ($x, $y) = @_;
@@ -114,6 +254,11 @@ sub SIGN
 sub SIN
 {
 	return sin(shift);
+}
+
+sub SQRT
+{
+	return sqrt(shift);
 }
 
 sub SUBSTR
@@ -137,11 +282,6 @@ sub SUBSTRB
 	return SUBSTR(@_);
 }
 
-sub TAN
-{
-	return tan(shift);
-}
-
 sub TO_CHAR
 {
 	do 'to_char.pl';
@@ -156,7 +296,6 @@ sub TO_CHAR
 
 sub TO_DATE
 {
-	#@_ = &chkcolumnparms(@_);
 	do 'to_date.pl';
 	if ($err =~ /^Invalid/)
 	{
@@ -193,15 +332,89 @@ sub TRANSLATE
 sub TRUNC
 {
 	my ($m, $n) = @_;
-	return int($m * (10 ** $n)) / (10 ** $n);
+	if ($n =~ /D/i)
+	{
+		my @timestuff = localtime($m);
+		my $thisdate = $timestuff[5] + 1900;
+		$thisdate .= '0'  if ($timestuff[4] < 9);
+		$thisdate .= $timestuff[4] + 1;
+		$thisdate .= '0'  if ($timestuff[3] < 10);
+		$thisdate .= $timestuff[3];
+	    my $xx = timelocal(0,0,0,substr($thisdate,6,2),
+                        (substr($thisdate,4,2)-1),substr($thisdate,0,4),0,0,0);
+		return $xx;
+	}
+	elsif ($n =~ /Y/i)
+	{
+		my @timestuff = localtime($m);
+		my $thisdate = $timestuff[5] + 1900;
+	    my $xx = timelocal(0,0,0,1,0,$thisdate,0,0,0);
+		return $xx;
+	}
+	elsif ($n =~ /MI/i)
+	{
+		my @timestuff = localtime($m);
+		my $thisdate = $timestuff[5] + 1900;
+		$thisdate .= '0'  if ($timestuff[4] < 9);
+		$thisdate .= $timestuff[4] + 1;
+		$thisdate .= '0'  if ($timestuff[3] < 10);
+		$thisdate .= $timestuff[3];
+		$thisdate .= '0'  if ($timestuff[2] < 10);
+		$thisdate .= $timestuff[2];
+		$thisdate .= '0'  if ($timestuff[1] < 10);
+		$thisdate .= $timestuff[1];
+	    my $xx = timelocal(0,substr($thisdate,10,2),substr($thisdate,8,2),substr($thisdate,6,2),
+                        (substr($thisdate,4,2)-1),substr($thisdate,0,4),0,0,0);
+		return $xx;
+	}
+	elsif ($n =~ /M/i)
+	{
+		my @timestuff = localtime($m);
+		my $thisdate = $timestuff[5] + 1900;
+		$thisdate .= '0'  if ($timestuff[4] < 9);
+		$thisdate .= $timestuff[4] + 1;
+	    my $xx = timelocal(0,0,0,1,(substr($thisdate,4,2)-1),substr($thisdate,0,4),0,0,0);
+		return $xx;
+	}
+	elsif ($n =~ /H/i)
+	{
+		my @timestuff = localtime($m);
+		my $thisdate = $timestuff[5] + 1900;
+		$thisdate .= '0'  if ($timestuff[4] < 9);
+		$thisdate .= $timestuff[4] + 1;
+		$thisdate .= '0'  if ($timestuff[3] < 10);
+		$thisdate .= $timestuff[3];
+		$thisdate .= '0'  if ($timestuff[2] < 10);
+		$thisdate .= $timestuff[2];
+	    my $xx = timelocal(0,0,substr($thisdate,8,2),substr($thisdate,6,2),
+                        (substr($thisdate,4,2)-1),substr($thisdate,0,4),0,0,0);
+		return $xx;
+	}
+	else
+	{
+		return int($m * (10 ** $n)) / (10 ** $n);
+	}
 }
 
 sub UPPER
 {
-	#@_ = &chkcolumnparms(@_);
 	my ($s) = shift;
 	$s =~ tr/a-z/A-Z/;
 	return $s;
+}
+
+sub WEEKS_BETWEEN   #SPRITE-ONLY FUNCTION.
+{
+	my ($d1, $d2) = @_;
+	my ($secbtn) = abs($d2 - $d1);
+	return $secbtn / (7*86400);
+}
+
+sub YEARS_BETWEEN   #SPRITE-ONLY FUNCTION.
+{
+	my ($d1, $d2) = @_;
+	my ($secbtn) = abs($d2 - $d1);
+	return $secbtn / (365.25*86400);
 }
 
 1

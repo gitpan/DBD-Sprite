@@ -32,6 +32,7 @@ DESCRIPTION
 	7) NULL is handled as an empty string.
 	8) Oracle Sequences are supported!
 	9) Numeric, Char(#), and Varchar(#) datatypes are supported!
+	10) Autonumbering (without sequences) is now also supported!
   
     See the DBI(3) manpage for details on DBI, the JSprite(3) manpage
     for details on Sprite plus my extensions.
@@ -252,6 +253,34 @@ Inserting, fetching and modifying data
 
 			None
 
+	You can now also set up autonumbering fields without sequences.  For example:
+
+		create table mytable (
+			id		AUTONUMBER,
+			value		VARCHAR(40),
+				primary key (id)
+		)
+		
+	Then, insert records either of these ways:
+	
+		insert into mytable values ('Value for sequence number 1');
+		insert into mytable values (NULL, 'Value for sequence number 2');
+
+	The 1st record automatically gets id set to 1, the 2nd, id set to 2, etc.
+	Attempts to update an "AUTONUMBER" field will return an error.
+
+	You can also capture parts of current values of fields and update those 
+	and or other fields using those values based on Perl pattern matching and 
+	capturing, ie.:
+
+		update MYTABLE set FIELD1 = '$1.$2' where FIELD2 =~ '(\d)(\d+)'
+
+	This will set FIELD1 to the 1st digit found in FIELD2 followed by a 
+	decimal point, followed by any subsequent digits in FIELD2 in the same
+	record!  Up to 2 matches for each "where" expression containing "=~" or
+	"!~" may be captured.  $1 .. $n correspond to each set of unescaped
+	parenthesis from left to right in the "where" clause.
+
 Error handling
 
     In the above examples we have never cared about return codes. Of course,
@@ -459,9 +488,7 @@ TODO
         in JSprite is bound to a single file, I have some ideas and am
         starting to seriously look into this.  Stay tuned!
 
-	Additional Oracle-ish functions built-in.  The currently-supported ones 
-		are "SYSTIME", "NUM", and "NULL".  "NUM" does nothing, "NULL" returns 
-		an empty string.  My first will probably be "TO_DATE".
+	Additional Oracle-ish functions as requested.
 	
 	Whatever Mr. Gurdavaram might wish to add.
 	
@@ -472,18 +499,14 @@ KNOWN BUGS
             important on these operating systems, as they are for single
             users anyways).
 
-    *       The SQL query operators "and" and "or" must currently be 
-	    *lower case*!
+    *       Unique-key violations on updates probably will not be caught 
+	    if the argument is a function-call or a field-name.
 
     *	    If fields specified in the "order-by" clause are not also 
 	    fetched, ordering does not work quite right :-(
 
-	*		AutoCommit=1 does not work (discovered 20010911)
-	*		Question marks in midst of bound parameters causes execute to fail.
-			(discovered 20010911)
-
 AUTHOR AND COPYRIGHT
-    This module is Copyright (C) 2000 by
+    This module is Copyright (C) 2000, 2001 by
 
         Jim Turner
 
@@ -577,23 +600,27 @@ Revision history for Perl extension DBD::Sprite.
 	  to not work right when one opened a database, closed that database, then 
 	  opened a second database with different record and or field separators.
 	  Caught by Larry Yudelson, Thanks!
-0.24  Fri Oct 26
+0.25  Fri Oct 26
     - Added new regex feature to allow one to capture regex matches and update
       field values, ie:
-           update MYTABLE set FIELD1 = '$1' where FIELD2 =~ '(\d+)'
-      This will set FIELD1 to the 1st number found in FIELD2 in the same
-      record.  Up to 2 matches for each "where" expression containing "=~" or
-      "!~" may be captured.  $1 .. $n correspond to each set of unescaped
-      parenthesis from left to right in the "where" clause.
+           
     - Added TO_CHAR function for converting Perl "time" values to printable 
       formats.  Has most date and numeric functions in the two-argument
       form of the Oracle "TO_CHAR" function, which it is designed to emulate.
     - Added some optimization for mass-updates.
     - Added many other new Oracle functions (TO_NUMBER, USER, ABS, COS, EXP, 
-      FLOOR, MOD, POWER, ROUND, SIGN, SIN, TAN, TRUNC, CHR, INITCAP, LTRIM, 
+      FLOOR, MOD, POWER, ROUND, SIGN, SIN, TRUNC, CHR, INITCAP, LTRIM, 
       REPLACE, RTRIM, TRANSLATE, ASCII, LENGTH, SYSDATE.  All should now 
       work when selected from "DUAL".
-
+0.26  Mon Oct 29
+    - Fixed bug introduced in 0.24 where tests failed not finding "makesdb.pl".
+    - Fixed test failure on Windows platforms (I think).
+    - Added still more Oraclish functions (CEIL, EXP, INSTR, INSTRB, LAST_DAY,
+      LPAD, NVL, RPAD, LAST_DAY, and SQRT.  Fixed FLOOR.
+    - Added date-handling capability to TRUNC.
+      It should be noted that these functions do almost no error-checking.
+    - Added "AUTONUMBER" datatype to allow autonumbering without sequences.
+      This emulates the way M$-Access(ODBC) does things.
 
 SEE ALSO
 

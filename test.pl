@@ -1,3 +1,5 @@
+use lib '.';
+
 require DBI;
 
 # Before `make install' is performed this script should be runnable with
@@ -23,8 +25,16 @@ unlink "./test.sdb";
 
 # 2: MAKE A TEST DATABASE.
 
-system ("makesdb.pl test test test \".\" \".stb\" \"\\r\\n\" \",\"") ? 
-		print "not ok 2 ($@$?)\n" : print "ok 2\n";
+if ($^O =~ /Win/i)
+{
+	system ("perl makesdb.pl test test test \".\" \".stb\" \"\\r\\n\" \",\"") ? 
+			print "not ok 2 ($@$?)\n" : print "ok 2\n";
+}
+else
+{
+	system ("./makesdb.pl test test test \".\" \".stb\" \"\\r\\n\" \",\"") ? 
+			print "not ok 2 ($@$?)\n" : print "ok 2\n";
+}
 		
 # 3: FETCH LIST OF DATABASES (SHOULD JUST BE ONE - OUR NEW TEST ONE)!
 

@@ -4,6 +4,7 @@ my ($s) = $_[0];
 my ($f) = $_[1];
 
 @fmts = split(/\b/, $f);
+@fmts = split(/\b/, $f);
 @inputs = split(/\b/, $s);
 @today = localtime(time);
 $err = '';
@@ -14,7 +15,7 @@ $begofyear = timelocal(0,0,0,1,0,$today[5]);
 
 for (my $i=0;$i<=$#fmts;$i++)
 {
-	foreach my $f (qw(month ddd dd yyyymmdd yyyy hh24 hh mi mm mon sssss ss a p rm rr))
+	foreach my $f (qw(month ddd dd yyyymmdd yyyy yy hh24 hh mi mm mon sssss ss a p rm rr))
 	{
 		if ($fmts[$i] =~ /^$f/i)
 		{
@@ -92,7 +93,6 @@ sub rm
 		'xii' => 11
 	);
 
-	#print "\n-month: value=$inputs[shift]=\n";
 	my $indx = shift;
 	$inputs[$indx] =~ tr/A-Z/a-z/;
 	$tl[4] = $mthhash{$inputs[$indx]};
@@ -125,6 +125,11 @@ sub yyyy
 			unless ($inputs[$indx] =~ /^\d\d\d\d$/);
 	$tl[5] = $inputs[$indx];
 	return '';
+}
+
+sub yy
+{
+	return rr(shift);
 }
 
 sub rr

@@ -74,7 +74,7 @@ Revision history for Perl extension DBD::Sprite.
 	  to not work right when one opened a database, closed that database, then 
 	  opened a second database with different record and or field separators.
 	  Caught by Larry Yudelson, Thanks!
-0.24  Fri Oct 26
+0.25  Fri Oct 26
 	- Added new regex feature to allow one to capture regex matches and update 
 	  field values, ie:  
 	       update MYTABLE set FIELD1 = '$1' where FIELD2 =~ '(\d+)'
@@ -87,7 +87,16 @@ Revision history for Perl extension DBD::Sprite.
 	  form of the Oracle "TO_CHAR" function, which it is designed to emulate.
 	- Added some optimization for mass-updates.
 	- Added many other new Oracle functions (TO_NUMBER, USER, ABS, COS, EXP, 
-	  FLOOR, MOD, POWER, ROUND, SIGN, SIN, TAN, TRUNC, CHR, INITCAP, LTRIM, 
+	  FLOOR, MOD, POWER, ROUND, SIGN, SIN, TRUNC, CHR, INITCAP, LTRIM, 
 	  REPLACE, RTRIM, TRANSLATE, ASCII, LENGTH, SYSDATE.  All should now 
 	  work when selected from "DUAL".
-
+0.26  Mon Oct 29
+	- Fixed bug introduced in 0.24 where tests failed not finding "makesdb.pl".
+	- Fixed test failure on Windows platforms (I think).
+	- Added still more Oraclish functions (CEIL, EXP, INSTR, INSTRB, LAST_DAY, 
+	  LPAD, NVL, RPAD, LAST_DAY, and SQRT.  Fixed FLOOR.
+    - Added date-handling capability to TRUNC.
+	  It should be noted that these functions do almost no error-checking.
+	- Added "AUTONUMBER" datatype to allow autonumbering without sequences.  
+	  This emulates the way M$-Access(ODBC) does things.
+ 

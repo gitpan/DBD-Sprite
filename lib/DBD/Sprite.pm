@@ -15,7 +15,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.25';
+$VERSION = '0.26';
 
 # Preloaded methods go here.
 
@@ -495,6 +495,9 @@ sub type_info_all  #ADDED 20010312, BORROWED FROM "Oracle.pm".
 			[ 'NUMBER', 3, 38, undef, undef, 'precision,scale', 1, '0', 3,
 			'0', '0', '0', undef, '0', 38
 	],
+			[ 'AUTONUMBER', 4, 38, undef, undef, 'precision,scale', 1, '0', 3,
+			'0', '0', '0', undef, '0', 38
+	],
 			[ 'DOUBLE', 8, 15, undef, undef, undef, 1, '0', 3,
 			'0', '0', '0', undef, undef, undef
 	],
@@ -556,6 +559,7 @@ my (%typehash) = (
 	'LONG' => -1, 
 	'CHAR' => 1,
 	'NUMBER' => 3,
+	'AUTONUMBER' => 4,
 	'DOUBLE' => 8,
 	'DATE' => 11,
 	'VARCHAR' => 12,

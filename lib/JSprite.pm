@@ -463,14 +463,15 @@ eval {require 'OraSpriteFns.pl';};
 use vars qw ($VERSION $LOCK_SH $LOCK_EX);
 ##--
 
-$JSprite::VERSION = '5.25';
+$JSprite::VERSION = '5.26';
 $JSprite::LOCK_SH = 1;
 $JSprite::LOCK_EX = 2;
 
-my $NUMERICTYPES = '^(NUMBER|FLOAT|DOUBLE|INT|INTEGER|NUM)$';       #20000224
+my $NUMERICTYPES = '^(NUMBER|FLOAT|DOUBLE|INT|INTEGER|NUM|AUTONUMBER|AUTO|AUTO_INCREMENT)$';       #20011029
 my $STRINGTYPES = '^(VARCHAR2|CHAR|VARCHAR|DATE|LONG|BLOB|MEMO)$';
 my @perlconds = ();
 my @perlmatches = ();
+my $sprite_user = '';   #ADDED 20011026.
 
 ##++
 ##  Public Methods and Constructor
@@ -843,6 +844,8 @@ sub define_errors
     $errors->{'-521'} = "Can not change datatype on non-empty table.";  #20000323 JWT.
     $errors->{'-522'} = "Can not decrease field-size on non-empty table.";  #20000323 JWT.
     $errors->{'-523'} = "Special table \"DUAL\" is READONLY!";  #20000323 JWT.
+	$errors->{'-524'} = "Can't store non-NULL value into AUTOSEQUENCE!"; #20011029 JWT.
+	$errors->{'-525'} = "Can't update AUTOSEQUENCE field!"; #20011029 JWT.
 
     $self->{errors} = $errors;
 
@@ -1182,6 +1185,18 @@ $| = 1;
     $status  = 1;
     $results = [];
     @columns = split (/,/, $column_string);
+
+	if ($command eq 'update')  #ADDED NEXT 11 LINES 20011029 TO PROTECT AUTOSEQUENCE FIELDS FROM UPDATES.
+	{
+		foreach my $i (@columns)
+		{
+			if (${$self->{types}}{$i} =~ /AUTO/)
+			{
+				$errdetails = $i;
+				return (-525);
+			}
+		}
+	}
     #$single  = ($#columns) ? $columns[$[] : $column_string;
     $single  = ($#columns) ? $columns[$#columns] : $column_string;
 	$rowcnt = 0;
@@ -2446,6 +2461,22 @@ sub insert_data
     @columns = split (/,/, $column_string);
     #JWT: @values  = $self->quotewords (',', 0, $value_string);
 
+	if ($#columns > $#values)  #ADDED 20011029 TO DO AUTOSEQUENCING!
+	{
+		$column_string .= ','  unless ($column_string =~ /\,\s*$/);
+		for (my $i=0;$i<=$#columns;$i++)
+		{
+			if (${$self->{types}}{$columns[$i]} =~ /AUTO/)
+			{
+				$column_string =~ s/$columns[$i]\,//;
+				$column_string .= $columns[$i] . ',';
+				push (@values, "''");
+			}
+		}
+		$column_string =~ s/\,\s*$//;
+		@columns = split (/,/, $column_string);
+	}
+
     if ($#columns == $#values) {
     
 	my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
@@ -2473,7 +2504,19 @@ sub insert_data
 			$stuff =~ s|\'\'|\'|g;
 			$stuff/e;
 			$values[$loop] =~ s|^\'$||;      #HANDLE NULL VALUES!!!.
-			if (length($values[$loop]) || !length($self->{defaults}->{$column}))
+			if (${$self->{types}}{$column} =~ /AUTO/)  #NEXT 12 ADDED 20011029 TO DO ODBC&MYSQL-LIKE AUTOSEQUENCING.
+			{
+				if (length($values[$loop]))
+				{
+					$errdetails = "value($values[$loop]) into column($column)";
+					return (-524);
+				}
+				else
+				{
+					$v = ++$self->{defaults}->{$column};
+				}
+			}
+			elsif (length($values[$loop]) || !length($self->{defaults}->{$column}))
 			{
 				$v = $values[$loop];
 			}
