@@ -464,7 +464,7 @@ eval {require 'OraSpriteFns.pl';};
 use vars qw ($VERSION $LOCK_SH $LOCK_EX);
 ##--
 
-$JSprite::VERSION = '5.47';
+$JSprite::VERSION = '5.50';
 $JSprite::LOCK_SH = 1;
 $JSprite::LOCK_EX = 2;
 
@@ -969,10 +969,10 @@ sub define_errors
 
 sub parse_expression
 {
-    my ($self, $query) = @_;
+    my ($self, $query, $colmlist) = @_;
     return unless ($query);
     my ($column, @strings, %numopmap, %stropmap, $numops, $strops, $special);
-	my ($colmlist) = join('|',@{$self->{order}});
+	$colmlist ||= join('|',@{$self->{order}});
 	my ($psuedocols) = "CURVAL|NEXTVAL";
 
 	unless ($colmlist =~ /\S/)
@@ -1002,10 +1002,11 @@ sub parse_expression
     ##--
 
 $query =~ s/\\\\/\x02\^2jSpR1tE\x02/gs;    #PROTECT "\\"   #XCHGD. TO 2 LINES DOWN 20020111
-$query =~ s/\\\'|\'\'/\x02\^3jSpR1tE\x02/gs;   #20000201  #PROTECT "", \", '', AND \'.
-#$query =~ s/\\/\x02\^2jSpR1tE\x02/gs;    #PROTECT "\\"
+#$query =~ s/\\\'|\'\'/\x02\^3jSpR1tE\x02/gs;   #CHGD. TO NEXT 20040305 2 FIX PERL BUG? UNPROTECT WON'T WORK IF STR="m'str\x02..\x02more'"?!?!?!
+$query =~ s/\\\'|\'\'/\^3jSpR1tE/gs;   #20000201  #PROTECT "", \", '', AND \'.
 
 my ($i, $j, $j2, $k);
+
 while (1)
 {
 	$i = 0;
@@ -1067,16 +1068,16 @@ while (1)
                    $m ||= ''; $i ||= '';
 					$m = 'm'  unless ($delim eq '/');
 					my ($three) = $delim;
-					$four =~ s/\\\(/\x02\^2jSpR1tE\x02/gs;
-					$four =~ s/\\\)/\x02\^3jSpR1tE\x02/gs;
+					$four =~ s/\\\(/\x02\^5jSpR1tE\x02/gs;
+					$four =~ s/\\\)/\x02\^6jSpR1tE\x02/gs;
 					if ($four =~ /\(.*\)/)
 					{
 						#$four =~ s/\(//g;
 						#$four =~ s/\)//g;
 						$catchmatch = 1;
 					}
-					$four =~ s/\x02\^2jSpR1tE\x02/\(/gs;
-					$four =~ s/\x02\^3jSpR1tE\x02/\)/gs;
+					$four =~ s/\x02\^5jSpR1tE\x02/\(/gs;
+					$four =~ s/\x02\^6jSpR1tE\x02/\)/gs;
                     push (@strings, "$m$delim$four$three$i");
 					push (@perlconds, "\$_->{$fldname} $one *$#strings; push (\@perlmatches, \$1)  if (defined \$1); push (\@perlmatches, \$2)  if (defined \$2);")  if ($catchmatch);
                    "$fldname $one *$#strings";
@@ -1092,9 +1093,15 @@ while (1)
 
 	for $i (0..$#strings)
 	{
-		$strings[$i] =~ s/\x02\^3jSpR1tE\x02/\\\'/gs; #RESTORE PROTECTED SINGLE QUOTES HERE.
-		#$strings[$i] =~ s/\x02\^4jSpR1tE\x02/\"/gs;   #RESTORE PROTECTED DOUBLE QUOTES HERE.   #REMOVED 20000303.
-		#$strings[$i] =~ s/\x02\^2jSpR1tE\x02/\\/gs;   #RESTORE PROTECTED SLATS HERE.  #CHGD. TO NEXT 20020111
+		#$strings[$i] =~ s/\x02\^3jSpR1tE\x02/\\\'/gs; #CHGD. TO NEXT IF-STMT. 20040503.
+		 if ($strings[$i] =~ /^m?\'/)  #TEST ADDED 20040305 TO FIX BUG PREVENTING "LIKE ? (BIND='STR\'W/AQUOTEINIT')!
+		 {                             #ALSO HAD 2 REMOVE "\X02" BRACKETS ON RESERVED STR. (PERL BUG?)
+			 $strings[$i] =~ s/\^3jSpR1tE/\'/gs; #RESTORE PROTECTED SINGLE QUOTES HERE.
+		 }
+		 else
+		 {
+			 $strings[$i] =~ s/\^3jSpR1tE/\\\'/gs; #RESTORE PROTECTED SINGLE QUOTES HERE.
+		 }
 		$strings[$i] =~ s/\x02\^2jSpR1tE\x02/\\\\/gs;   #RESTORE PROTECTED SLATS HERE.
 	}
 
@@ -1342,6 +1349,7 @@ sub parse_columns
 		next unless (defined $self->{records}->[$loop]);    #JWT: DON'T RETURN BLANK DELETED RECORDS.
 		$_ = $self->{records}->[$loop];
 		$@ = '';
+#print "<<<<<<< JSPRITE EVAL CONDITION=$condition=\n";
 		if ( !$condition || (eval $condition) ) {
 		    if ($command eq 'select')
 		    {
@@ -2088,8 +2096,10 @@ sub update
 
 	$extra =~ s/\\\\/\x02\^2jSpR1tE\x02/gs;         #PROTECT "\\"
 	#$extra =~ s/\\\'|\'\'/\x02\^3jSpR1tE\x02/gs;    #PROTECT '', AND \'. #CHANGED 20000303 TO NEXT 2.
-	$extra =~ s/\'\'/\x02\^3jSpR1tE\x02\x02\^3jSpR1tE\x02/gs;    #PROTECT '', AND \'.
-	$extra =~ s/\\\'/\x02\^3jSpR1tE\x02/gs;    #PROTECT '', AND \'.
+	#$extra =~ s/\'\'/\x02\^3jSpR1tE\x02\x02\^3jSpR1tE\x02/gs;    #CHGD. TO NEXT 20040121
+	#$extra =~ s/\'\'/\x02\^3jSpR1tE\x02\x02\^8jSpR1tE\x02/gs;    #PROTECT '', AND \'.
+	$extra =~ s/\'\'/\x02\^8jSpR1tE\x02/gs;    #PROTECT ''.
+	$extra =~ s/\\\'/\x02\^3jSpR1tE\x02/gs;    #PROTECT \'.
 	#$extra =~ s/\\\"|\"\"/\x02\^4jSpR1tE\x02/gs;   #REMOVED 20000303.
 
 	#$extra =~ s/^[\s\(]+(.*)$/$1/;  #STRIP OFF SURROUNDING SPACES AND PARINS.
@@ -2128,6 +2138,7 @@ sub update
 		"'$j'"/egs;
 	}
 	$extra = $expns[$#expns];    #EXTRACT WHERE-CLAUSE, IF ANY.
+	$extra =~ s/\x02\^8jSpR1tE\x02/\'\'/gs; #ADDED 20040121.
 	$condition = ($extra =~ s/(.*)where(.+)$/where$1/is) ? $2 : '';
 	$condition =~ s/\s+//s;
 	####$condition =~ s/^\((.*)\)$/$1/g;  #REMOVED 20010313 SO "WHERE ((COND) OP (COND) OP (COND)) WOULD WORK FOR DBIX-RECORDSET. (SELECT APPEARS TO WORK WITHOUT THIS).
@@ -2151,7 +2162,7 @@ sub update
 			$val =~ s|%\0(\d+): |pack("C",$1)|ge;
 			$all_columns->{$var} = $val;
 			$all_columns->{$var} =~ s/\x02\^2jSpR1tE\x02/\\\\/g;
-			#$all_columns->{$var} =~ s/\x02\^3jSpR1tE\x02/\'\'/g;
+			$all_columns->{$var} =~ s/\x02\^8jSpR1tE\x02/\'\'/g; #ADDED 20040121.
 			$all_columns->{$var} =~ s/\x02\^3jSpR1tE\x02/\'/g;   #20000108 REPL. PREV. LINE - NO NEED TO DOUBLE QUOTES (WE ESCAPE THEM) - THIS AIN'T ORACLE.
 			#$all_columns->{$var} =~ s/\x02\^4jSpR1tE\x02/\"\"/g;   #REMOVED 20000303.
 		!es;

@@ -264,3 +264,11 @@ Revision history for Perl extension DBD::Sprite.
 0.47  Fri Nov 28 2003
 	- Fixed "_set_fbav"-reported error when sorting field containing a "null" 
 	  element.
+0.50  Fri Mar 5
+	- *JOINS ARE FINALY HERE!*  One can now do very basic two-table inner 
+	  equi-joins using Sprite.  This is based on the pre-Oracle-9 syntax, 
+	  which supports table name aliasing.  The table-name or alias must be 
+	  specified qualifying each fieldname (tablename.fieldname).  See the 
+	  docs for an example.  Test & enjoy! ;)
+	- Fixed small bug that prevented passing bind-arguments containing an 
+	  escaped single-quote to a "like" expression in a where-clause.

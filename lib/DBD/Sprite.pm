@@ -17,7 +17,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 	
 #);
-$VERSION = '0.47';
+$VERSION = '0.50';
 
 # Preloaded methods go here.
 
@@ -137,7 +137,6 @@ sub connect {
 				{
 					#$attr->{$j} = $dfltattr{$j};  #CHGD. TO NEXT 20030207
 					$attr->{$j} = $dfltattr{$j}  unless (defined $attr->{$j});
-#print "-attr($j) =$attr->{$j}=  dflt=$dfltattr{$j}=\n";
 				}
 				last;
 			}
@@ -300,9 +299,15 @@ use vars qw($imp_data_size);
 sub prepare
 {
 	my ($resptr, $sqlstr, $attribs) = @_;
+
+	my ($indx, @QS);
+
+if (open (LOG, ">>/tmp/sprite.log"))
+{
+	print LOG "prepare sql=$sqlstr=\n";
+	close LOG;
+}
 	local ($_);
-#print "-prepare: attr=".join('|',keys(%$attribs))."= vals=".join('|',values(%$attribs))."=\n";
-#print "-???0- cfn=".$resptr->{sprite_attrhref}->{sprite_CaseFieldNames}."=\n";
 	#$sqlstr =~ s/\n/ /g;  #REMOVED 20011107.
 	
 	DBI::set_err($resptr, 0, '');
@@ -314,9 +319,14 @@ sub prepare
 
 	$csr->STORE('sprite_fetchcnt', 0);
 	$csr->STORE('sprite_reslinev','');
+	$sqlstr =~ s/\\\'|\'\'/\x02\^3jSpR1tE\x02/gs; #PROTECT "\'" IN QUOTES.
+	$sqlstr =~ s/\\\"|\"\"/\x02\^4jSpR1tE\x02/gs; #PROTECT "\"" IN QUOTES.
+	$indx = 0;
+	$indx++  while ($sqlstr =~ s/([\'\"])([^\1]*?)\1/
+				$QS[$indx] = "$1$2"; "\$QS\[$indx]"/e);
 	#$sqlstr =~ /(into|from|update|table) \s*(\w+)/gi;  #CHANGED 20000831 TO NEXT LINE!
-	$sqlstr =~ /(into|from|update|table|sequence)\s+(\w+)/is;
-	my ($spritefid) = $2;
+	#$sqlstr =~ /(into|from|update|table|sequence)\s+(\w+)/is;  #CHGD. 20040305 TO NEXT.
+	my ($spritefid) = $2  if ($sqlstr =~ /(into|from|update|table|sequence)\s+(\w+)/is);
 	unless ($spritefid)   #NEXT 5 ADDED 20000831!
 	{
 		DBI::set_err($resptr, -1, "Prepare:(bad sql) Must specify a table name!");
@@ -325,6 +335,31 @@ sub prepare
 	$spritefid =~ tr/A-Z/a-z/  unless ($resptr->{sprite_attrhref}->{CaseTableNames});
 	$csr->STORE('sprite_spritefid', $spritefid);
 
+	my $join = 0;
+	my $joininfo;
+	$joininfo = $1  if ($sqlstr =~ /from\s+([\w\.\, ]+)\s*(?:where|order\s+by)/is);
+	$joininfo = $1  if (!$joininfo && $sqlstr =~ /from\s+([\w\.\, ]+)/is);
+	my @joinfids;
+	my @joinfids = split(/\,\s*/, $joininfo)  if (defined $joininfo);
+	my (@joinfid, @joinalias);
+	if ($#joinfids >= 1)
+	{
+		unless ($#joinfids == 1)
+		{
+			DBI::set_err($resptr, -1, "Only 2-table joins currently supported!");
+			return undef;
+		}
+		for (my $i=0;$i<=$#joinfids;$i++)
+		{
+			($joinfid[$i], $joinalias[$i]) = split(/\s+/, $joinfids[$i]);
+			$joinfid[$i] ||= $joinfids[$i];
+			$joinfid[$i] =~ tr/A-Z/a-z/  unless ($resptr->{sprite_attrhref}->{CaseTableNames});
+		}
+		$csr->STORE('sprite_joinfid', \@joinfid);
+		$csr->STORE('sprite_joinalias', \@joinalias);
+		$join = 1;
+	}
+
 	#CHECK TO SEE IF A PREVIOUSLY-CLOSED SPRITE OBJECT EXISTS FOR THIS TABLE.
 	#IF SET, THE "RECYCLE" OPTION TELLS SPRITE NOT TO RELOAD THE TABLE DATA.
 	#THIS IS USEFUL TO SAVE TIME AND MEMORY FOR APPS DOING MULTIPLE 
@@ -332,65 +367,228 @@ sub prepare
 	#RELOADING IS NECESSARY, HOWEVER, IF ANOTHER USER CAN CHANGE THE 
 	#DATA SINCE YOUR LAST COMMIT, SO RECYCLE IS OFF BY DEFAULT!
 	#THE SPRITE HANDLE AND ALL IT'S BASIC CONFIGURATION IS RECYCLED REGARDLESS.
-	
-	my ($myspriteref);
-	if (ref($resptr->{'sprite_SpritesOpen'}) && ref($resptr->{'sprite_SpritesOpen'}->{$spritefid}))
-	{
-		$myspriteref = ${$resptr->{'sprite_SpritesOpen'}->{$spritefid}};
-		$csr->STORE('sprite_spritedb', ${$resptr->{'sprite_SpritesOpen'}->{$spritefid}});
-		$myspriteref->{TYPE} = undef;
-		$myspriteref->{NAME} = undef;
-		$myspriteref->{PRECISION} = undef;
-		$myspriteref->{SCALE} = undef;
-	}
-	else   #CREATE A NEW SPRITE OBJECT.
-	{
-		$myspriteref = new JSprite(%{$resptr->{sprite_attrhref}});
-		unless ($myspriteref)
-		{
-			DBI::set_err($resptr, -1, "Unable to create JSprite handle ($@)!");
-			return undef;
-		}
-		$csr->STORE('sprite_spritedb', $myspriteref);
-		my ($openhash) = $resptr->FETCH('sprite_SpritesOpen');
-		$openhash->{$spritefid} = \$myspriteref;
-		$myspriteref->set_delimiter("-read",($attribs->{sprite_read} || $attribs->{sprite_field} || $resptr->FETCH('sprite_dbfdelim')));
-		$myspriteref->set_delimiter("-write",($attribs->{sprite_write} || $attribs->{sprite_field} || $resptr->FETCH('sprite_dbwdelim')));
-		$myspriteref->set_delimiter("-record",($attribs->{sprite_record} || $attribs->{sprite_field} || $resptr->FETCH('sprite_dbrdelim')));
-		$myspriteref->set_db_dir($resptr->FETCH('sprite_dbdir'));
-		$myspriteref->set_db_ext($resptr->FETCH('sprite_dbext'));
-		#$myspriteref->set_os("Unix");
-		#$myspriteref->{CaseTableNames} = $resptr->{sprite_attrhref}->{CaseTableNames};
-		#ABOVE CHANGED TO BELOW(1 LINE) 20001010!
-		$myspriteref->{CaseTableNames} = $resptr->{sprite_attrhref}->{sprite_CaseTableNames};
-		$myspriteref->{sprite_CaseFieldNames} = $resptr->{sprite_attrhref}->{sprite_CaseFieldNames};
-		$myspriteref->{StrictCharComp} = $resptr->{sprite_attrhref}->{sprite_StrictCharComp};
-		#DON'T NEED!#$myspriteref->{Crypt} = $resptr->{sprite_attrhref}->{sprite_Crypt};  #ADDED 20020109.
-		$myspriteref->{sprite_forcereplace} = $resptr->{sprite_attrhref}->{sprite_forcereplace};  #ADDED 20010912.
-		$myspriteref->{dbuser} = $resptr->FETCH('sprite_dbuser');  #ADDED 20011026.
-		$myspriteref->{dbname} = $resptr->FETCH('sprite_dbname');  #ADDED 20011026.
-		$myspriteref->{dbhandle} = $resptr;  #ADDED 20020516
-	}
-	$myspriteref->{LongTruncOk} = $resptr->FETCH('LongTruncOk');
-	my ($silent) = $resptr->FETCH('PrintError');
-	$myspriteref->{silent} = ($silent ? 0 : 1);   #ADDED 20000103 TO SUPPRESS "OOPS" MSG ON WEBSITES!
-	$myspriteref->{sprite_reclimit} = (defined $attribs->{sprite_reclimit}) ? $attribs->{sprite_reclimit} : 0;  #ADDED 20020123.
-	$myspriteref->{sprite_sizelimit} = (defined $attribs->{sprite_sizelimit}) ? $attribs->{sprite_sizelimit} : 0;  #ADDED 20020530.
 
+	my (@spritedbs) = (qw(sprite_spritedb sprite_joindb));
+	my ($myspriteref);
+	my $i = 0;
+	$myspriteref = undef;
+	foreach my $fid ($spritefid, $joinfid[1])
+	{
+		last  unless ($fid);
+		if (ref($resptr->{'sprite_SpritesOpen'}) && ref($resptr->{'sprite_SpritesOpen'}->{$fid}))
+		{
+			$myspriteref = ${$resptr->{'sprite_SpritesOpen'}->{$fid}};
+			$csr->STORE($spritedbs[$i], ${$resptr->{'sprite_SpritesOpen'}->{$fid}});
+			$myspriteref->{TYPE} = undef;
+			$myspriteref->{NAME} = undef;
+			$myspriteref->{PRECISION} = undef;
+			$myspriteref->{SCALE} = undef;
+		}
+		else   #CREATE A NEW SPRITE OBJECT.
+		{
+			$myspriteref = new JSprite(%{$resptr->{sprite_attrhref}});
+			unless ($myspriteref)
+			{
+				DBI::set_err($resptr, -1, "Unable to create JSprite handle ($@)!");
+				return undef;
+			}
+			$csr->STORE($spritedbs[$i], $myspriteref);
+			my ($openhash) = $resptr->FETCH('sprite_SpritesOpen');
+			$openhash->{$fid} = \$myspriteref;
+			$myspriteref->set_delimiter("-read",($attribs->{sprite_read} || $attribs->{sprite_field} || $resptr->FETCH('sprite_dbfdelim')));
+			$myspriteref->set_delimiter("-write",($attribs->{sprite_write} || $attribs->{sprite_field} || $resptr->FETCH('sprite_dbwdelim')));
+			$myspriteref->set_delimiter("-record",($attribs->{sprite_record} || $attribs->{sprite_field} || $resptr->FETCH('sprite_dbrdelim')));
+			$myspriteref->set_db_dir($resptr->FETCH('sprite_dbdir'));
+			$myspriteref->set_db_ext($resptr->FETCH('sprite_dbext'));
+			$myspriteref->{CaseTableNames} = $resptr->{sprite_attrhref}->{sprite_CaseTableNames};
+			$myspriteref->{sprite_CaseFieldNames} = $resptr->{sprite_attrhref}->{sprite_CaseFieldNames};
+			$myspriteref->{StrictCharComp} = $resptr->{sprite_attrhref}->{sprite_StrictCharComp};
+			#DON'T NEED!#$myspriteref->{Crypt} = $resptr->{sprite_attrhref}->{sprite_Crypt};  #ADDED 20020109.
+			$myspriteref->{sprite_forcereplace} = $resptr->{sprite_attrhref}->{sprite_forcereplace};  #ADDED 20010912.
+			$myspriteref->{dbuser} = $resptr->FETCH('sprite_dbuser');  #ADDED 20011026.
+			$myspriteref->{dbname} = $resptr->FETCH('sprite_dbname');  #ADDED 20011026.
+			$myspriteref->{dbhandle} = $resptr;  #ADDED 20020516
+		}
+		$myspriteref->{LongTruncOk} = $resptr->FETCH('LongTruncOk');
+		my ($silent) = $resptr->FETCH('PrintError');
+		$myspriteref->{silent} = ($silent ? 0 : 1);   #ADDED 20000103 TO SUPPRESS "OOPS" MSG ON WEBSITES!
+		$myspriteref->{sprite_reclimit} = (defined $attribs->{sprite_reclimit}) ? $attribs->{sprite_reclimit} : 0;  #ADDED 20020123.
+		$myspriteref->{sprite_sizelimit} = (defined $attribs->{sprite_sizelimit}) ? $attribs->{sprite_sizelimit} : 0;  #ADDED 20020530.
+		++$i;
+	}
+
+	#PARSE OUT SQL IF JOIN.
+
+	my $num_of_params;
+	my @bindindices;
+	my @joinsql;
+	if ($join)
+	{
+		my ($whereclause, $joinfid);
+		my %addfields;  #FIELDS IN UNION CRITERIA THAT MUST BE ADDED TO FETCH.
+		my @selectfields;  #FIELD NAMES OF FIELDS TO BE FETCHED.
+		my $addthesefields; #COLLECT LIST OF FIELDS THAT ACTUALLY NEED ADDING.
+		my @union;  #LIST OF FIELDS IN THE JOIN UNION(S).
+		my $listprefix;
+
+		for (my $jj=0;$jj<=1;$jj++)
+		{
+			$joinsql[$jj] = $sqlstr;
+			$joinfid = $joinalias[$jj] ? $joinalias[$jj] : $joinfid[$jj];
+			%addfields = ();
+
+			$joinsql[$jj] =~ s/^\s+//gs;  #STRIP LEADING, TRAILING SPACES.
+			$joinsql[$jj] =~ s/\s+$//gs;
+#			$joinsql[$jj] =~ s/\\\'|\'\'/\x02\^2jSpR1tE\x02/gs; #PROTECT "\'" IN QUOTES.
+#			$joinsql[$jj] =~ s/\\\"|\"\"/\x02\^3jSpR1tE\x02/gs; #PROTECT "\"" IN QUOTES.
+
+			#CONVERT ALL "jointable.fieldname" to "fieldname" & REMOVE ALL "othertables.fieldname".
+
+			$joinsql[$jj] =~ s!^\s*select(?:\s*distinct)?\s+(.+)\s+from\s+!
+					my $one = $1;
+					$one =~ s/$joinfid\.//g;
+					$one =~ s/\w+\.\w+(?:\s*\,)?//g;
+					$one =~ s/\,\s*$//;
+					"select $one from "
+			!eis;
+
+			$whereclause = $1  if ($joinsql[$jj] =~ s/\s+where\s+(.+)$/ /is);
+#			$csr->STORE("sprite_where0", $whereclause)  unless ($jj);	
+			unless ($jj)
+			{
+				my $unprotectedWhere = $whereclause;
+				if ($whereclause =~ /\S/)
+				{
+					#RESTORE QUOTED STRINGS AND ESCAPED QUOTES WITHIN THEM.
+					1 while ($unprotectedWhere =~ s/\$QS\[(\d+)\]/
+							my $one = $1;
+							my $quotechar = substr($QS[$one],0,1);
+							($quotechar.substr($QS[$one],1).$quotechar)
+					/es);
+					$unprotectedWhere =~ s/\x02\^4jSpR1tE\x02/\"\"/gs;   #UNPROTECT QUOTES WITHIN QUOTES!
+					$unprotectedWhere =~ s/\x02\^3jSpR1tE\x02/\'\'/gs;
+				}
+				$csr->STORE("sprite_where0", $unprotectedWhere);	
+			}
+
+
+#			$whereclause =~ s/([\'\"])([^\1]*?)\1//g;   #STRIP OUT QUOTED STRINGS TO PREVENT INTERFEARANCE W/OTHER REGICES.
+			$_ = $1  if ($joinsql[$jj] =~ /select\s+(.+?)\s+from\s+/);
+			s/\s+//g;
+			@selectfields = split(/\,/, $_);
+
+			#DEAL WITH THE ORDER-BY CLAUSE, IF ANY.
+
+			if ($whereclause =~ s/\s+order\s+by\s*(.*)//is || $joinsql[$jj] =~ s/\s+order\s+by\s*(.*)//is)
+			{
+				my $ordbyclause = $1;
+				if ($jj)
+				{
+					$ordbyclause =~ s/(?:$joinalias[0]|$joinfid[0])\.\w+(?:\s+desc)?//gis;
+				}
+				else
+				{
+					$csr->STORE('sprite_joinorder', (
+							($ordbyclause =~ /^(?:$joinalias[1]|$joinfid[1])\./)
+							? 1 : 0));
+					$ordbyclause =~ s/(?:$joinalias[1]|$joinfid[1])\.\w+(?:\s+desc)?\s*\,?//gis;
+				}
+				$ordbyclause =~ s/\w+\.(\w+)/$1/gs;
+				$ordbyclause =~ s/\,\s*$//s;
+				$ordbyclause =~ s/^\s*\,//s;
+				$joinsql[$jj] .= " order by $ordbyclause"  if ($ordbyclause =~ /\S/);
+			}
+			
+			#ADD ANY FIELDS IN WHERE-CLAUSE BUT NOT FETCHED (WE MUST FETCH THEM)!
+			@union = ();
+			while ($whereclause =~ s/$joinfid\.(\w+)//is)
+			{
+				$addfields{$1} = 1;
+				push (@union, "$joinfid.$1");
+			}
+			$csr->STORE("sprite_union$jj", [@union]);
+			$joinsql[$jj] =~ s/$joinfid\.(\w+)/$1/gs;
+#			unless ($whereclause)
+#			{
+#				DBI::set_err($resptr, -1, 'Join queries require "where"-clause!');
+#				return undef;
+#			}
+
+			#REMOVE THE OTHER TABLES FROM THE FROM CLAUSE.
+
+			#$joinsql[$jj] =~ s!\s+from\s+(\w+.*?)(\s+where.*)?$!" from $joinfid[$jj] $2"!egs;
+			$joinsql[$jj] =~ s!\s+from\s+(\w+.*?)(\s+(?:where|order\s+by).*)?$!" from $joinfid[$jj] $2"!egs;
+
+			#APPEND UNION FIELDS FROM JOINTABLE NOT IN SELECT LIST TO SELECT LIST.
+
+			$addthesefields = '';
+			$listprefix = '';
+			unless ($selectfields[0] eq '*')
+			{
+outer:				foreach my $j (keys %addfields)
+				{
+					for (my $k=0;$k<=$#selectfields;$k++)
+					{
+						next outer  if ($selectfields[$k] eq $j);
+						$listprefix = ',';
+					}
+					$addthesefields .= $listprefix . $j;
+				}
+				$joinsql[$jj] =~ s/\s+from\s+/ $addthesefields from /;
+			}
+			$csr->STORE("sprite_joinnops$jj", 0);
+
+			#RESTORE QUOTED STRINGS AND ESCAPED QUOTES WITHIN THEM.
+			1 while ($joinsql[$jj] =~ s/\$QS\[(\d+)\]/
+					my $one = $1;
+					my $quotechar = substr($QS[$one],0,1);
+					($quotechar.substr($QS[$one],1).$quotechar)
+			/es);
+			$joinsql[$jj] =~ s/\x02\^4jSpR1tE\x02/\"\"/gs;   #UNPROTECT QUOTES WITHIN QUOTES!
+			$joinsql[$jj] =~ s/\x02\^3jSpR1tE\x02/\'\'/gs;
+			$csr->STORE("sprite_joinstmt$jj", $joinsql[$jj]);	
+		}
+		$csr->STORE('sprite_joinparams', []);
+	}
+	else
+	{
+		$sqlstr =~ s/select\s+(.*?)\s+from\s+(\w+)\s+(\w+)\s+(where\s+.+|order\s+.+)?$/
+				my ($one, $two, $three, $four) = ($1, $2, $3, $4);
+				$one =~ s|\b$three\.(\w)|$1|g;
+				$four =~ s|\b$three\.(\w)|$1|g;
+				"select $one from $two $four"
+		/eis;
+	}
+	
 	#SET UP STMT. PARAMETERS.
 	
 	$csr->STORE('sprite_params', []);
-	#$sqlstr =~ s/([\'\"])([^$1]*?)\?([^$1]*?$1)/$1$2\x02\^2jSpR1tE\x02$3/g;  #PROTECT ? IN QUOTES (DATA)!
-	#PREV. LINE CHGD TO NEXT 5 20010312 TO FIX!
-	$sqlstr =~ s/([\'\"])([^\1]*?)\1/
-			my ($quote) = $1;
-			my ($str) = $2;
-			$str =~ s|\?|\x02\^2jSpR1tE\x02|gs;   #PROTECT COMMAS IN QUOTES.
-			"$quote$str$quote"/egs;
-	my $num_of_params = ($sqlstr =~ tr/\?//);
+	$num_of_params = ($sqlstr =~ tr/\?//);
 	$sqlstr =~ s/\x02\^2jSpR1tE\x02/\?/gs;
 	$csr->STORE('NUM_OF_PARAMS', $num_of_params);	
+	$sqlstr = $joinsql[0]  if ($joinsql[0]);
+
+	#RESTORE QUOTED STRINGS.
+	1 while ($sqlstr =~ s/\$QS\[(\d+)\]/
+			my $one = $1;
+			my $quotechar = substr($QS[$one],0,1);
+			($quotechar.substr($QS[$one],1).$quotechar)
+	/es);
+	$sqlstr =~ s/\x02\^3jSpR1tE\x02/\"\"/gs;   #UNPROTECT QUOTES WITHIN QUOTES!
+	$sqlstr =~ s/\x02\^2jSpR1tE\x02/\'\'/gs;
+	$csr->STORE('sprite_statement', $sqlstr);
     return ($csr);
+}
+
+sub parseParins  #RECURSIVELY ASSIGN ALL PARENTHAASZED EXPRESSIONS TO AN ARRAY TO PROTECT FROM OTHER REGICES.
+{
+	my ($T, $tindx, $s) = @_;
+
+	$tindx++ while ($s =~ s/\(([^\(\)]+)\)/
+			$T->[$tindx] = &parseParins($T, $tindx, $1);
+			"\$T\[$tindx]"
+	/e);
+	return $s;
 }
 
 sub commit
@@ -640,43 +838,51 @@ sub bind_param
 
 sub execute
 {
-    my ($sth, @bind_values) = @_;
-
-    my $params = (@bind_values) ?
-        \@bind_values : $sth->FETCH('sprite_params');
+	my ($sth, @bind_values) = @_;
+	my $params = (@bind_values) ? \@bind_values : $sth->FETCH('sprite_params');
+#if (open (LOG, ">>/tmp/sprite.log"))
+#{
+#	print LOG "execute bind(".join('|',@{$params}).")\n(".join('|',@bind_values).")\n";
+#	close LOG;
+#}
+	my @ocolnames;
 
 	for (my $i=0;$i<=$#{$params};$i++)  #ADDED 20000303  FIX QUOTE PROBLEM WITH BINDS.
 	{
 		$params->[$i] =~ s/\'/\'\'/g;
 	}
 
-    my $numParam = $sth->FETCH('NUM_OF_PARAMS');
+	my $numParam = $sth->FETCH('NUM_OF_PARAMS');
 
-    if ($params && scalar(@$params) != $numParam)  #CHECK FOR RIGHT # PARAMS.
-    {
+	if ($params && scalar(@$params) != $numParam)  #CHECK FOR RIGHT # PARAMS.
+	{
 		DBI::set_err($sth, (scalar(@$params)-$numParam), 
-				"..execute: Wrong number of bind variables (".(scalar(@$params)-$numParam)." too many!)");
+				"..execute: Wrong number of bind variables (".(scalar(@$params)-$numParam)
+				." too many!)");
 		return undef;
-    }
-    my $sqlstr = $sth->{'Statement'};
+	}
+	#my $sqlstr = $sth->{'Statement'};   #CHGD. TO NEXT 20040205 TO PERMIT JOINS.
+	my $sqlstr = $sth->FETCH('sprite_statement');
 
 	#NEXT 8 LINES ADDED 20010911 TO FIX BUG WHEN QUOTED VALUES CONTAIN "?"s.
-    $sqlstr =~ s/\\\'/\x02\^3jSpR1tE\x02/gs;      #PROTECT ESCAPED DOUBLE-QUOTES.
-    $sqlstr =~ s/\'\'/\x02\^4jSpR1tE\x02/gs;      #PROTECT DOUBLED DOUBLE-QUOTES.
+	$sqlstr =~ s/\\\'/\x02\^3jSpR1tE\x02/gs;      #PROTECT ESCAPED DOUBLE-QUOTES.
+	$sqlstr =~ s/\'\'/\x02\^4jSpR1tE\x02/gs;      #PROTECT DOUBLED DOUBLE-QUOTES.
 	$sqlstr =~ s/\'([^\']*?)\'/
 			my ($str) = $1;
-			$str =~ s|\?|\x02\^2jSpR1tE\x02|gs;   #PROTECT QUESTION-MARKS WITHIN QUOTES.
+			$str =~ s|\?|\x02\^2jSpR1tE\x02|gs;    #PROTECT QUESTION-MARKS WITHIN QUOTES.
 			"'$str'"/egs;
 	$sqlstr =~ s/\x02\^4jSpR1tE\x02/\'\'/gs;      #UNPROTECT DOUBLED DOUBLE-QUOTES.
 	$sqlstr =~ s/\x02\^3jSpR1tE\x02/\\\'/gs;      #UNPROTECT ESCAPED DOUBLE-QUOTES.
 
 	#CONVERT REMAINING QUESTION-MARKS TO BOUND VALUES.
 
-    for (my $i = 0;  $i < $numParam;  $i++)
-    {
+#	my $bindindices = $sth->FETCH('sprite_bi0') || [0..($numParam-1)];
+#	foreach my $i (@$bindindices)
+	for (my $i = 0;  $i < $numParam;  $i++)
+	{
 		$params->[$i] =~ s/\?/\x02\^2jSpR1tE\x02/gs;   #ADDED 20001023 TO FIX BUG WHEN PARAMETER OTHER THAN LAST CONTAINS A "?"!
-        $sqlstr =~ s/\?/"'".$params->[$i]."'"/es;
-    }
+		$sqlstr =~ s/\?/"'".$params->[$i]."'"/es;
+	}
 	$sqlstr =~ s/\x02\^2jSpR1tE\x02/\?/gs;     #ADDED 20001023! - UNPROTECT PROTECTED "?"s.
 	my ($spriteref) = $sth->FETCH('sprite_spritedb');
 
@@ -695,10 +901,251 @@ sub execute
 	{
 		$retval = $resv[0];
 		my $dB = $sth->{Database};
-		if ($dB->FETCH('AutoCommit') == 1 && $sth->FETCH('Statement') !~ /^\s*select/i)
+		#if ($dB->FETCH('AutoCommit') == 1 && $sth->FETCH('Statement') !~ /^\s*select/i)   #CHGD. TO NEXT 20040205 TO PERMIT JOINS.
+		if ($sth->FETCH('sprite_statement') !~ /^\s*select/i)
 		{
-			$retval = undef  unless ($spriteref->commit());  #ADDED 20010911 TO MAKE AUTOCOMMIT WORK (OOPS :(  )
-			#$dB->STORE('AutoCommit',1);  #COMMIT DONE HERE!
+			if ($dB->FETCH('AutoCommit') == 1)
+			{
+				$retval = undef  unless ($spriteref->commit());  #ADDED 20010911 TO MAKE AUTOCOMMIT WORK (OOPS :(  )
+				#$dB->STORE('AutoCommit',1);  #COMMIT DONE HERE!
+			}
+		}
+		else
+		{
+			#OCOL* = ORIGINAL SQL.
+			#ICOL* = BASE SQL.
+			#JCOL* = JOIN SQL.
+			$sqlstr = $sth->FETCH('sprite_joinstmt1');
+			if ($sqlstr)
+			{
+				$sqlstr =~ s/\\\'/\x02\^3jSpR1tE\x02/gs;      #PROTECT ESCAPED DOUBLE-QUOTES.
+				$sqlstr =~ s/\'\'/\x02\^4jSpR1tE\x02/gs;      #PROTECT DOUBLED DOUBLE-QUOTES.
+				$sqlstr =~ s/\'([^\']*?)\'/
+						my ($str) = $1;
+						$str =~ s|\?|\x02\^2jSpR1tE\x02|gs;    #PROTECT QUESTION-MARKS WITHIN QUOTES.
+						"'$str'"/egs;
+				$sqlstr =~ s/\x02\^4jSpR1tE\x02/\'\'/gs;      #UNPROTECT DOUBLED DOUBLE-QUOTES.
+				$sqlstr =~ s/\x02\^3jSpR1tE\x02/\\\'/gs;      #UNPROTECT ESCAPED DOUBLE-QUOTES.
+
+				#CONVERT REMAINING QUESTION-MARKS TO BOUND VALUES.
+
+#!!!				my $bindindices = $sth->FETCH('sprite_bi1');
+#				foreach my $i (@$bindindices)
+#				{
+#					$params->[$i] =~ s/\?/\x02\^2jSpR1tE\x02/gs;   #ADDED 20001023 TO FIX BUG WHEN PARAMETER OTHER THAN LAST CONTAINS A "?"!
+#					$sqlstr =~ s/\?/"'".$params->[$i]."'"/es;
+#				}
+				$sqlstr =~ s/\x02\^2jSpR1tE\x02/\?/gs;     #ADDED 20001023! - UNPROTECT PROTECTED "?"s.
+				my @icolnames = split(/\,/, $spriteref->{use_fields});
+				my %icolHash;
+				for (my $i=0;$i<=$#icolnames;$i++)
+				{
+					$icolHash{$icolnames[$i]} = $i;
+				}
+				my $origsql = $sth->FETCH('Statement');
+				$origsql =~ s/select\s+(.+)?\s+from\s+.+$/$1/is;
+				$origsql =~ s/\s+//g;
+				my $joinfids = $sth->FETCH('sprite_joinfid');
+				my $joinalii = $sth->FETCH('sprite_joinalias');
+				unless ($spriteref->{sprite_CaseFieldNames})
+				{
+					$origsql =~ tr/a-z/A-Z/;
+					for (my $i=0;$i<=$#{$joinfids};$i++)
+					{
+						$joinfids->[$i] =~ tr/a-z/A-Z/;
+						$joinalii->[$i] =~ tr/a-z/A-Z/;
+					}
+					
+				}
+				#CALL JSPRITE TO DO THE SQL!
+
+				my $joinspriteref = $sth->FETCH('sprite_joindb');
+				my (@joinresv) = $joinspriteref->sql($sqlstr);
+				my $joinunion0 = $sth->FETCH('sprite_union0');
+
+				#BUILD ARRAYS OF INDICES FOR UNION FIELDS TO BE COMPARED.
+				my @icolindx;
+				for (my $i=0;$i<=$#{$joinunion0};$i++)
+				{
+					$joinunion0->[$i] =~ s/[^\.]*\.(.*)/$1/;
+					$joinunion0->[$i] =~ tr/a-z/A-Z/
+							unless ($joinspriteref->{sprite_CaseFieldNames});
+					for (my $j=0;$j<=$#icolnames;$j++)
+					{
+						if ($joinunion0->[$i] eq $icolnames[$j])
+						{
+							push (@icolindx, $j);
+							last;
+						}
+					}
+				}
+				my $joinunion1 = $sth->FETCH('sprite_union1');
+				my @jcolnames = split(/\,/, $joinspriteref->{use_fields});
+				my %jcolHash;
+				for (my $i=0;$i<=$#jcolnames;$i++)
+				{
+					$jcolHash{$jcolnames[$i]} = $i;
+				}
+				my @jcolindx;
+				for (my $i=0;$i<=$#{$joinunion1};$i++)
+				{
+					$joinunion1->[$i] =~ s/[^\.]*\.(.*)/$1/;
+					$joinunion1->[$i] =~ tr/a-z/A-Z/
+							unless ($joinspriteref->{sprite_CaseFieldNames});
+					for (my $j=0;$j<=$#jcolnames;$j++)
+					{
+						if ($joinunion1->[$i] eq $jcolnames[$j])
+						{
+							push (@jcolindx, $j);
+							last;
+						}
+					}
+				}
+				@ocolnames = split(/\,/, $origsql);
+				my ($tbl,$fld);
+				my (@ocolwhich, %newtypes, %newlens, %newscales);
+I1:				for (my $i=0;$i<=$#ocolnames;$i++)
+				{
+					($tbl,$fld) = split(/\./, $ocolnames[$i]);
+					$ocolnames[$i] = $fld;
+					if ($tbl eq $joinfids->[1] || $tbl eq $joinalii->[1])
+					{
+						$ocolwhich[$i] = 1;
+						for (my $j=0;$j<=$#jcolindx;$j++)
+						{
+							if ($fld eq $jcolnames[$j])
+							{
+								$newtypes{$fld} = ${$joinspriteref->{types}}{$fld};
+								$newlens{$fld} = ${$joinspriteref->{lengths}}{$fld};
+								$newscales{$fld} = ${$joinspriteref->{scales}}{$fld};
+								next I1;
+							}
+						}
+					}
+					else
+					{
+						$ocolwhich[$i] = 0;
+						for (my $j=0;$j<=$#icolindx;$j++)
+						{
+							if ($fld eq $icolnames[$j])
+							{
+								$newtypes{$fld} = ${$spriteref->{types}}{$fld};
+								$newlens{$fld} = ${$spriteref->{lengths}}{$fld};
+								$newscales{$fld} = ${$spriteref->{scales}}{$fld};
+								next I1;
+							}
+						}
+					}
+				}
+				%{$spriteref->{types}} = %newtypes;
+				%{$spriteref->{lengths}} = %newlens;
+				%{$spriteref->{scales}} = %newscales;
+				$spriteref->{TYPE} = undef;
+				my $jrow = shift(@joinresv);
+				my $row = shift(@resv);
+				my $orig_whereclause = $sth->FETCH('sprite_where0');
+				$orig_whereclause =~ s/\s+order\s+by\s+[\w\,\.\s]+$//is;
+				my @tblname = (($joinalii->[0] || $joinfids->[0]), 
+						($joinalii->[1] || $joinfids->[1]));
+				my $validColumnnames = "(?:$tblname[0].".$spriteref->{use_fields};
+				$validColumnnames =~ s/\,/\|$tblname[0]\./g;
+				$validColumnnames .= "|$tblname[1].".$joinspriteref->{use_fields}.')';
+				$validColumnnames =~ s/\,/\|$tblname[1]\./g;
+				for (my $i=0;$i<=1;$i++)
+				{
+					$orig_whereclause =~ s/ $joinalii->[$i]\./ $joinfids->[$i]\./g;
+				}
+				#NOW, BIND ALL BIND VARIABLES HERE!
+
+				$orig_whereclause =~ s/\\\'/\x02\^3jSpR1tE\x02/gs;      #PROTECT ESCAPED DOUBLE-QUOTES.
+				$orig_whereclause =~ s/\'\'/\x02\^4jSpR1tE\x02/gs;      #PROTECT DOUBLED DOUBLE-QUOTES.
+				$orig_whereclause =~ s/\'([^\']*?)\'/
+						my ($str) = $1;
+						$str =~ s|\?|\x02\^2jSpR1tE\x02|gs;    #PROTECT QUESTION-MARKS WITHIN QUOTES.
+						"'$str'"/egs;
+				$orig_whereclause =~ s/\x02\^4jSpR1tE\x02/\'\'/gs;      #UNPROTECT DOUBLED DOUBLE-QUOTES.
+				$orig_whereclause =~ s/\x02\^3jSpR1tE\x02/\\\'/gs;      #UNPROTECT ESCAPED DOUBLE-QUOTES.
+
+				#CONVERT REMAINING QUESTION-MARKS TO BOUND VALUES.
+
+#	my $bindindices = $sth->FETCH('sprite_bi0') || [0..($numParam-1)];
+#	foreach my $i (@$bindindices)
+				for (my $i = 0;  $i < $numParam;  $i++)
+				{
+					$params->[$i] =~ s/\?/\x02\^2jSpR1tE\x02/gs;   #ADDED 20001023 TO FIX BUG WHEN PARAMETER OTHER THAN LAST CONTAINS A "?"!
+					$orig_whereclause =~ s/\?/"'".$params->[$i]."'"/es;
+				}
+				$orig_whereclause =~ s/\x02\^2jSpR1tE\x02/\?/gs;     #ADDED 20001023! - UNPROTECT PROTECTED "?"s.
+
+				my $cond = $spriteref->parse_expression($orig_whereclause, $validColumnnames);
+
+				$cond =~ s/\$\_\-\>\{$tblname[0]\.(\w+)\}/\$baserow\-\>\[\$icolHash\{$1\}\]/g;
+				$cond =~ s/\$\_\-\>\{$tblname[1]\.(\w+)\}/\$joinrow\-\>\[\$jcolHash\{$1\}\]/g;
+
+				#DONT NEED?$cond =~ s/[\r\n\t]/ /gs;
+
+				#NOW EVAL THE *ORIGINAL* WHERE-CLAUSE CONDITION TO WEED OUT UNDESIRED RECORDS.
+
+				my ($j, $k, $baserow, $joinrow, @newresv, @newrow);
+				if ($sth->FETCH('sprite_joinorder'))
+				{
+					while (@joinresv)
+					{
+						$joinrow = shift(@joinresv);
+J2A:						for ($j=0;$j<$row;$j++)
+						{
+							$baserow = $resv[$j];
+							$@ = '';
+							$_ = ($cond !~ /\S/ || eval $cond);
+							next J2A  unless ($_);
+
+							for ($k=0;$k<=$#ocolnames;$k++)
+							{
+								if ($ocolwhich[$k])
+								{
+									push (@newrow, $joinrow->[$jcolHash{$ocolnames[$k]}]);
+								}
+								else
+								{
+									push (@newrow, $baserow->[$icolHash{$ocolnames[$k]}]);
+								}
+							}
+							push (@newresv, [@newrow]);
+							@newrow = ();
+						}
+					}
+				}
+				else
+				{
+					while (@resv)
+					{
+						$baserow = shift(@resv);
+J2B:						for ($j=0;$j<$jrow;$j++)
+						{
+							$joinrow = $joinresv[$j];
+							$@ = '';
+							$_ = ($cond !~ /\S/ || eval $cond);
+							next J2B  unless ($_);
+
+							for ($k=0;$k<=$#ocolnames;$k++)
+							{
+								if ($ocolwhich[$k])
+								{
+									push (@newrow, $joinrow->[$jcolHash{$ocolnames[$k]}]);
+								}
+								else
+								{
+									push (@newrow, $baserow->[$icolHash{$ocolnames[$k]}]);
+								}
+							}
+							push (@newresv, [@newrow]);
+							@newrow = ();
+						}
+					}
+				}
+				@resv = (scalar(@newresv), @newresv);
+				$retval = $resv[0] || '0E0';
+			}
 		}
 	}
 	else                     #SELECT SELECTED ZERO RECORDS.
@@ -713,32 +1160,32 @@ sub execute
 		}
 		$retval = '0E0';
 	}
-	
+
 	#EVERYTHING WORKED, SO SAVE SPRITE RESULT (# ROWS) AND FETCH FIELD INFO.
 
-	 #if ($retval)   #CHGD TO NEXT 20020606.
-	 if (defined($retval) && $retval)
-	 {
+	#if ($retval)   #CHGD TO NEXT 20020606.
+	if (defined($retval) && $retval)
+	{
 		$sth->{'driver_rows'} = $retval; # number of rows
 		$sth->{'sprite_rows'} = $retval; # number of rows
 		$sth->STORE('sprite_rows', $retval);
 		$sth->STORE('driver_rows', $retval);
-	 }
-	 else
-	 {
+	}
+	else
+	{
 		$sth->{'driver_rows'} = 0; # number of rows
 		$sth->{'sprite_rows'} = 0; # number of rows
 		$sth->STORE('sprite_rows', 0);
 		$sth->STORE('driver_rows', 0);
-	 }
+	}
 
     #### NOTE #### IF THIS FAILS, IT PROBABLY NEEDS TO BE "sprite_rows"?
-    
+
 	shift @resv;   #REMOVE 1ST COLUMN FROM DATA RETURNED (THE SPRITE RESULT).
 
-	my @l = split(/,/,$spriteref->{use_fields});
-    $sth->STORE('NUM_OF_FIELDS',($#l+1));
-    my (@keyfields) = split(',', $spriteref->{key_fields}); #ADDED 20030520 TO IMPROVE NULLABLE.
+	my @l = ($#ocolnames >= 0) ? @ocolnames : split(/,/,$spriteref->{use_fields});
+	$sth->STORE('NUM_OF_FIELDS',($#l+1));
+	my (@keyfields) = split(',', $spriteref->{key_fields}); #ADDED 20030520 TO IMPROVE NULLABLE.
 	unless ($spriteref->{TYPE})
 	{
 		@{$spriteref->{NAME}} = @l;
@@ -769,23 +1216,23 @@ sub execute
 	}
 
 	#TRANSFER SPRITE'S FIELD DATA TO DBI.
-		
-    $sth->{'driver_data'} = \@resv;
-    $sth->STORE('sprite_data', \@resv);
+
+	$sth->{'driver_data'} = \@resv;
+	$sth->STORE('sprite_data', \@resv);
     #$sth->STORE('sprite_rows', ($#resv+1)); # number of rows
 	$sth->{'TYPE'} = \@{$spriteref->{TYPE}};
 	$sth->{'NAME'} = \@{$spriteref->{NAME}};
 	$sth->{'PRECISION'} = \@{$spriteref->{PRECISION}};
 	$sth->{'SCALE'} = \@{$spriteref->{SCALE}};
 	$sth->{'NULLABLE'} = \@{$spriteref->{NULLABLE}};
-    $sth->STORE('sprite_resv',\@resv);
+	$sth->STORE('sprite_resv',\@resv);
     #ADDED NEXT LINE 20020905 TO SUPPORT DBIx::GeneratedKey!
-    $sth->{Database}->STORE('sprite_insertid', $spriteref->{'sprite_lastsequence'});
-	 if (defined $retval)
-	 {
-	    return $retval ? $retval : '0E0';
-	 }
-    return undef;
+	$sth->{Database}->STORE('sprite_insertid', $spriteref->{'sprite_lastsequence'});
+	if (defined $retval)
+	{
+		return $retval ? $retval : '0E0';
+	}
+	return undef;
 }
 
 sub fetchrow_arrayref
@@ -793,6 +1240,7 @@ sub fetchrow_arrayref
 	my($sth) = @_;
 	my $data = $sth->FETCH('driver_data');
 	my $row = shift @$data;
+
 	return undef  if (!$row);
 	#my ($longreadlen) = $sth->{Database}->FETCH('LongReadLen');  #CHGD. TO NEXT 20020606 AS WORKAROUND FOR DBI::PurePerl;
 	my ($longreadlen) = $sth->{Database}->FETCH('LongReadLen') || 0;
@@ -819,7 +1267,6 @@ sub fetchrow_arrayref
 			map { $_ =~ s/\s+$//; } @$row;
 		}
 	}
-	
 	return $sth->_set_fbav($row);
 }
 

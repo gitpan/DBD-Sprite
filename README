@@ -275,6 +275,20 @@ Inserting, fetching and modifying data
 	"!~" may be captured.  $1 .. $n correspond to each set of unescaped
 	parenthesis from left to right in the "where" clause.
 
+Joins
+
+	As of v. 0.50, basic two-table inner-joins are now supported.  For example:
+	
+		select t1.field1, t2.field1, t1.field2 from table1 t1, table2 t2
+		where t1.field1 = t2.field3 order by t2.field1 desc, t1.field1
+
+	This would return the three fields requested based on a set intersection 
+	of all records in table1 and table2 such that field1 of table1 matches 
+	field3 of table3.  NOTE:  This is the ONLY type of join currently supported!
+	You can, however add additional selection criteria and or ordering 
+	arguments.  You can also omit the where-clause and get a "set union" of 
+	the specified fields for all records of both tables.
+
 Error handling
 
     In the above examples we have never cared about return codes. Of course,
@@ -532,14 +546,6 @@ TODO
 
 	Additional Oracle-ish functions built-in as requested.
 	
-    Joins
-        The current version of the module works with single table SELECTs
-        only.  This will be a trick, since the underlying statement object
-        in JSprite is bound to a single file, I have some ideas and am
-        starting to seriously look into this.  Stay tuned!
-
-	Whatever Mr. Gurdavaram might wish to add.
-	
 KNOWN BUGS
 
     *       The module is using flock() internally. However, this function is
@@ -551,6 +557,16 @@ KNOWN BUGS
     *       Unique-key violations on updates probably will not be caught 
 	        if the argument is a function-call or a field-name.
 
+	*		Sorting for joins:  In order to obtain correct sorting, all 
+			fields specifying desired sort order must be grouped together by 
+			table, ie. "order by t1.field1, t1.field2, t2.field1, t2.field2", 
+			which should work fine.  This is due to the fact that the records 
+			are merged together after data for each table is sorted 
+			independently.  This should not be an issue for 95+% of all sorts,  
+			If it is, patches are welcome and my very own "sort_elements()" 
+			module is available to you!  An example of a sort known NOT to 
+			work exactly right would be:  
+			"order by "t1.field1, t2.field1, t1.field2".
 
 AUTHOR AND COPYRIGHT
 

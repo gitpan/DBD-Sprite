@@ -1,10 +1,14 @@
+my @timevals;
+
+return &to_char(@_)  if (scalar(@_));   #ADDED 2003/12/15 TO MAKE INTO A GENERAL CALLABLE FUNCTION!
+
 my ($s) = $_[0];
 my ($fmt) = $_[1] || 'dd-MON-rr';
 
 $err = '';
 $rtnTime = '';
 
-my (@timevals) = localtime($s);
+@timevals = localtime($s);
 
 foreach my $f (qw(month mon Month Mon MONTH MON))
 {
@@ -17,7 +21,8 @@ foreach my $f (qw(ddd dd yyyy yy hh24 hh mi mm sssss ss rm rr))
 	last  if ($err)	;
 }
 
-$fmt =~ s/\b(a)([\.m]?)\b/&a($1).$2/egi;
+#$fmt =~ s/\b(a)([\.m]?)\b/&a($1).$2/egi;
+$fmt =~ s/\b([aApP])([\.[mM]?)\b/&{$1}.$2/eg;
 
 $fmt =~ s/([0\$BSCL]*)([9D\.\,GV]+)(\s*CR|PR|EEEE)/&fmt9($1,$2,$3)/eg;
 
@@ -191,6 +196,27 @@ sub a
 	return 'p';
 }
 
+sub p
+{
+	my ($t) = $timevals[2];
+	return 'a'  if ($t < 12);
+	return 'p';
+}
+
+sub A
+{
+	my ($t) = $timevals[2];
+	return 'A'  if ($t < 12);
+	return 'P';
+}
+
+sub P
+{
+	my ($t) = $timevals[2];
+	return 'A'  if ($t < 12);
+	return 'P';
+}
+
 sub mi
 {
 	my ($t) = $timevals[1];
@@ -215,6 +241,37 @@ sub ddd
 	my ($t) = $timevals[7] + 1;
 	$t = '0' . $t  if ($t < 10);
 	return $t;
+}
+
+sub to_char
+{
+	my ($s) = $_[0];
+	my ($fmt) = $_[1] || 'dd-MON-rr';
+#print "<BR>TO_CHAR($s|$fmt)=\n";
+	$err = '';
+	$rtnTime = '';
+
+	@timevals = localtime($s);
+#print "<BR>timevals=".join('|',@timevals)."=\n";
+	foreach my $f (qw(month mon Month Mon MONTH MON))
+	{
+		$fmt =~ s/($f)/&{$f}($1)/eg;
+		last  if ($err)	;
+	}
+	foreach my $f (qw(ddd dd yyyy yy hh24 hh mi mm sssss ss rm rr))
+	{
+		$fmt =~ s/($f)/&{$f}($1)/egi;
+		last  if ($err)	;
+	}
+
+	#$fmt =~ s/\b(a)([\.m]?)\b/&a($1).$2/egi;
+	$fmt =~ s/\b([aApP])([\.[mM]?)\b/&{$1}.$2/eg;
+	
+	$fmt =~ s/([0\$BSCL]*)([9D\.\,GV]+)(\s*CR|PR|EEEE)/&fmt9($1,$2,$3)/eg;
+
+	$rtnTime = $fmt;
+#print "<BR>tochar returns =$rtnTime=\n";
+	return $rtnTime;
 }
 
 1
