@@ -1,0 +1,9 @@
+Changes
+MANIFEST
+README
+Makefile.PL
+lib/JSprite.pm
+lib/OraSpriteFns.pl
+lib/DBD/Sprite.pm
+test.pl
+makesdb.pl

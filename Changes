@@ -1,0 +1,26 @@
+Revision history for Perl extension DBD::Sprite.
+
+0.01  Fri Feb 25 13:00:55 2000
+	- original version; created by h2xs 1.18
+0.02  Fri Mar 03
+	- Fixed single-quote handling on bound parameters.
+0.07  Fri Apr 14
+	- Refixed test-14 failure (CHAR datatype).  Also create and alter 
+	  table commands should now work properly (save your table 1st! ;)
+0.08  Wed May 03
+	- Fix Windows glob problem for Perl2EXE
+	- Added missing file "OraSpriteFns.pl" to build
+0.09  Fri Jun 09
+	- Fix bug in DELETE which occassionally caused infinite loop.
+0.10  Wed Aug 16
+	- Fix bug involving "like" and field values containing regex-
+	  special characters, ie. ".".
+0.11  Thu Aug 31
+	- Fix regex bug in Sprite.pm and add error-checking for SQL 
+	- commands wo/space after table-name, ie "update table-name\n...".
+0.12  Tue Sep 05
+	- Add size fields are truncated to to "-519" error message.
+0.13  Tue Oct 10
+	- Fix CaseTableNames attribute to "sprite_CaseTableNames.
+	- Minor docs fix.
+
