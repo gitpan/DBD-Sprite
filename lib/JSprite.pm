@@ -85,7 +85,7 @@ Here are a list of the SQL commands that are supported by JSprite:
 
 =item I<select> - retrieves records that match specified criteria:
 
-  select col1 [,col2] from database 
+  select col1 [,col2] from table_name
          where (cond1 OPERATOR value1) 
          [and|or (cond2 OPERATOR value2) ...] 
          order by col1 [,col2] 
@@ -95,8 +95,6 @@ The '*' operator can be used to select all columns.
 The I<database> is simply the file that contains the data. If the file 
 is not in the current directory, the path must be specified.  By
 default, the actual file-name will end with the extension ".sdb".
-
-Sprite does I<not> support multiple tables (commonly known as "joins").
 
 Valid column names can be used where [cond1..n] and [value1..n] are expected, 
 such as: 
@@ -131,7 +129,7 @@ need to use the I<set_db_dir> method.
 
 =item I<update> - updates records that match specified criteria. 
 
-  update database 
+  update table_name
     set cond1 = (value1)[,cond2 = (value2) ...]
         where (cond1 OPERATOR value1)
         [and|or (cond2 OPERATOR value2) ...] 
@@ -149,7 +147,7 @@ I<Example>:
 
 =item I<delete> - removes records that match specified criteria:
 
-  delete from database 
+  delete from table_name
          where (cond1 OPERATOR value1) 
          [and|or (cond2 OPERATOR value2) ...] 
 
@@ -159,14 +157,29 @@ I<Example>:
          where (Player =~ /Johnson$/i) or
                (Years > 12) 
 
+=item I<create> - simplified version of SQL-92 counterpart
+
+Creates a new table or sequence.
+
+  create table table_name (
+         column-name datatype [, column-name2 datatype...]
+         [, primary key (column-name [, column-name..])
+
+  create sequence sequence_name [increment by #] start with #
+
+A sequence is an Oracle-ish way of doing autonumbering.  The sequence is stored 
+in a tiny ascii file (sequence-name.seq).  You can also do autonumbering the 
+MySQL way with a field using the "AUTONUMBER" datatype and giving it a default 
+value of the starting sequence number.
+
 =item I<alter> - simplified version of SQL-92 counterpart
 
 Removes the specified column from the database. The other standard SQL 
 functions for alter table are also supported:
 
-  alter table database drop (column-name [, column-name2...])
+  alter table table_name drop (column-name [, column-name2...])
 
-  alter table database add ([position] column-name datatype
+  alter table table_name add ([position] column-name datatype
   		[, [position2] column-name2 datatype2...] 
   		[primary key (column-name [, column-name2...]) ])
 
@@ -194,7 +207,7 @@ part of standard SQL.
 
 =item I<insert> - inserts a record into the database:
 
-  insert into database 
+  insert into table_name 
          [(col1, col2, ... coln) ]
   values 
          (val1, val2, ... valn) 
@@ -464,7 +477,7 @@ eval {require 'OraSpriteFns.pl';};
 use vars qw ($VERSION $LOCK_SH $LOCK_EX);
 ##--
 
-$JSprite::VERSION = '5.50';
+$JSprite::VERSION = '5.56';
 $JSprite::LOCK_SH = 1;
 $JSprite::LOCK_EX = 2;
 
@@ -540,6 +553,10 @@ sub new
 		sprite_xsl	=> '',      #JWT: 20020611: OPTIONAL XSL TEMPLATE FILE.
 		sprite_CaseFieldNames => 0,  #JWT: 20020618: FIELD-NAME CASE-SENSITIVITY?
 		sprite_lastsequence => '',   #JWT: ADDED 20020905 TO SUPPORT DBIx::GeneratedKey!
+		sprite_nocase => 0,    #JWT: ADDED 20040323 TO SUPPORT CASE-INSENSITIVE WHERE-CLAUSES LIKE LDAP.
+		                       #NOTE - ONLY CURRENTLY FOR "LIKE/NOT LIKE" (VALUE=1|'L)!
+		                       #MAY ADD OTHER VALUES LATER!
+		ASNAMES => {},         #ADDED 20040913 TO SUPPORT "AS" IN SELECTS.
 	    };
 
     $self->{separator} = { Unix  => '/',    Mac => ':',   #JWT: BUGFIX.
@@ -777,6 +794,7 @@ sub sql
 {
     my ($self, $query) = @_;
     my ($command, $status);
+
     return wantarray ? () : -514  unless ($query);
 
 	$sprite_user = $self->{'dbuser'};   #ADDED 20011026.
@@ -973,7 +991,7 @@ sub parse_expression
     return unless ($query);
     my ($column, @strings, %numopmap, %stropmap, $numops, $strops, $special);
 	$colmlist ||= join('|',@{$self->{order}});
-	my ($psuedocols) = "CURVAL|NEXTVAL";
+	my ($psuedocols) = "CURRVAL|NEXTVAL";
 
 	unless ($colmlist =~ /\S/)
 	{
@@ -1006,6 +1024,7 @@ $query =~ s/\\\\/\x02\^2jSpR1tE\x02/gs;    #PROTECT "\\"   #XCHGD. TO 2 LINES DO
 $query =~ s/\\\'|\'\'/\^3jSpR1tE/gs;   #20000201  #PROTECT "", \", '', AND \'.
 
 my ($i, $j, $j2, $k);
+my $caseopt = ($self->{sprite_nocase} ? 'i' : '');  #ADDED 20040325.
 
 while (1)
 {
@@ -1014,7 +1033,8 @@ while (1)
 	$i = ($query =~ s|\b($colmlist)\s+like\s+|$1 =^ |is)  unless ($i);
 	if ($i)
 	{
-		if ($query =~ /([\=\!]\^\s*)(["'])(.*?)\2/s)  #20001010
+		#if ($query =~ /([\=\!]\^\s*)(["'])(.*?)\2/s)  #CHGD. TO NEXT 20040325.
+		if ($query =~ s/([\=\!]\^\s*)(["'])(.*?)\2/$1$2$3$2$caseopt/s)  #20001010
 		{
 			$j = "$1$2";   #EVERYTHING BEFORE THE QUOTE (DELIMITER), INCLUSIVE
 			$i = $3;       #THE STUFF BETWEEN THE QUOTES.
@@ -1061,7 +1081,6 @@ while (1)
 	#THIS REGEX HANDLES ALL OTHER LIKE AND PERL "=~" AND "!~" OPERATORS.
 
 	@perlconds = ();
-
     $query =~ s%\b($colmlist)\s*([!=][~\^])\s*(m)?(.)([^\4]*?)\4(i)?%  #20011017: CHGD TO NEXT.
 	           my ($m, $i, $delim, $four, $one, $fldname) = ($3, $6, $4, $5, $2, $1);
 	           my ($catchmatch) = 0;
@@ -1088,15 +1107,26 @@ while (1)
  	       |ges;
 
 	$query =~ s/\x02\^3jSpR1tE\x02/\'/gs;   #RESTORE PROTECTED SINGLE QUOTES HERE.
+	$query =~ s/\^3jSpR1tE/\'/gs;       #ADDED 20040913 RESTORE PROTECTED SINGLE QUOTES HERE.
 	#$query =~ s/\x02\^2jSpR1tE\x02/\\/gs;   #RESTORE PROTECTED SLATS HERE.  #CHGD. TO NEXT 20020111
 	$query =~ s/\x02\^2jSpR1tE\x02/\\\\/gs;   #RESTORE PROTECTED SLATS HERE.
-
 	for $i (0..$#strings)
 	{
 		#$strings[$i] =~ s/\x02\^3jSpR1tE\x02/\\\'/gs; #CHGD. TO NEXT IF-STMT. 20040503.
-		 if ($strings[$i] =~ /^m?\'/)  #TEST ADDED 20040305 TO FIX BUG PREVENTING "LIKE ? (BIND='STR\'W/AQUOTEINIT')!
+		#### NOTE:  STRING MUST *NOT* CONTAIN BOTH SINGLE-QUOTES AND GRAVS AND "^"S!!!!!
+		 if ($strings[$i] =~ /^m\'/)  #TEST MODIFIED 20050429 TO FIX BUG - IF STRING IS LIKE, THEN CHANGE m'str' to m`str` and restore ' UNESCAPED!
 		 {                             #ALSO HAD 2 REMOVE "\X02" BRACKETS ON RESERVED STR. (PERL BUG?)
 			 $strings[$i] =~ s/\^3jSpR1tE/\'/gs; #RESTORE PROTECTED SINGLE QUOTES HERE.
+			 if ($string !~ /\`/)  #NO GRAVS IN STRING, SAVE TO BRACKET W/GRAVS.
+			 {
+				 $strings[$i] =~ s/^m\'/m\`/;
+				 $strings[$i] =~ s/\'$/\`/;
+			 }
+			 else   #GRAVS TAKEN TOO, TRY "^" FOR BRACKET CHAR. IF BOTH GRAVS & "^" TAKEN, THEN PUNT!
+			 {
+				 $strings[$i] =~ s/^m\'/m\^/;
+				 $strings[$i] =~ s/\'$/\^/;
+			 }
 		 }
 		 else
 		 {
@@ -1118,10 +1148,9 @@ while (1)
     #$query =~ s#\b($colmlist)\s*($numops)\s*($column(?:\(.*?\))?)#$1 $numopmap{$2} $3#gi;
     $query =~ s%\b($column\s*(?:\(.*?\))?)\s+is\s+null%$1 eq ''%igs;
     $query =~ s%\b($column\s*(?:\(.*?\))?)\s+is\s+not\s+null%$1 ne ''%igs;
-    #$query =~ s%\b($colmlist)\s*(?:\(.*?\))?)\s*($numops)\s*CURVAL%$1 $2 &pscolfn($self,$3)%gi;
+    #$query =~ s%\b($colmlist)\s*(?:\(.*?\))?)\s*($numops)\s*CURRVAL%$1 $2 &pscolfn($self,$3)%gi;
     $query =~ s%($column)\s*($numops)\s*($column\.(?:$psuedocols))%"$1 $2 ".&pscolfn($self,$3)%egs;
     #$query =~ s%\b($column\s*(?:\(.*?\))?)\s*($numops)\s*($column\s*(?:\(.*?\))?)%   #CHGD. TO NEXT 20020108 TO FIX BUG WHEN WHERE-CLAUSE TESTED EQUALITY WITH NEGATIVE CONSTANTS.
-    
     $query =~ s%\b($column\s*(?:\(.*?\))?)\s*($numops)\s*((?:[\+\-]?[0..9+-\.Ee]+|$column)\s*(?:\(.*?\))?)%
 		my ($one,$two,$three) = ($1,$2,$3);
 		$one =~ s/\s+$//;
@@ -1216,27 +1245,27 @@ while (1)
 	 	$perlconds[$i] =~ s|\*(\d+)|$strings[$1]|gs;
 	 }
 
-    
 	#THIS REGEX EVALS USER-FUNCTION CALLS FOLLOWING "=~" OR "!~".
 	$query =~ s@([!=][~\^])\s*m\&([a-zA-Z_]+[^&]*)\&@
 			my ($one, $two) = ($1, $2);
 			
-			$one =~ s/\^/\~/s;
+			#$one =~ s/\^/\~/s;   #MOVED INSIDE "UNLESS" BELOW 20040323.
 			my ($res) = eval($two);
 			$res =~ s/^\%//s;
 			$res =~ s/\%$//s;
-			my ($rtn);
+			my ($rtn, $isalike);
 			foreach my $i ('/',"'",'"','|')
 			{
 				unless ($res =~ m%$i%)
 				{
+					$isalike = 1  if ($one =~ s/\^/\~/s);
 					$rtn = "$one m".$i.$res.$i;
+					$rtn .= 'i'  if ($self->{sprite_nocase} && $isalike);
 					last;
 				}
 			}
 			$rtn;
 	@egs;
-
     return $query;
 }
 
@@ -1268,13 +1297,13 @@ sub check_columns
 
 sub parse_columns
 {
-    my ($self, $command, $column_string, $condition, $values, 
+	my ($self, $command, $column_string, $condition, $values, 
 			$ordercols, $descorder, $fields, $distinct) = @_;
-    my ($i, $j, $k, $rowcnt, $status, @columns, $single, $loop, $code, $column);
+	my ($i, $j, $k, $rowcnt, $status, @columns, $single, $loop, $code, $column);
 	my (%colorder, $rawvalue);
 	my (@result_index);   #ADDED 20020709 TO SUPPORT SORTING ON COLUMNS NOT IN RESULT-SET.
 
-	my ($psuedocols) = "CURVAL|NEXTVAL";   #ADDED 20011019.
+	my ($psuedocols) = "CURRVAL|NEXTVAL";   #ADDED 20011019.
 	local $results = undef;
 	my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
 	my (%valuenames);  #ADDED 20001218 TO ALLOW FIELD-NAMES AS RIGHT-VALUES.
@@ -1282,21 +1311,21 @@ sub parse_columns
 	{
 #		$valuenames{$i} = $values->{$i};   #MOVED TO BOTTOM OF LOOP 20020522 TO FIX SINGLE-QUOTE-IN-VALUE (-517) BUG!
 		$values->{$i} =~ s/^\'(.*)\'$/my ($stuff) = $1; 
-				$stuff =~ s|\'|\\\'|gs;
-				$stuff =~ s|\\\'\\\'|\\\'|gs;
-				"'" . $stuff . "'"/es;
+		$stuff =~ s|\'|\\\'|gs;
+		$stuff =~ s|\\\'\\\'|\\\'|gs;
+		"'" . $stuff . "'"/es;
 		$values->{$i} =~ s/^\'$//s;      #HANDLE NULL VALUES.
 		#$values->{$i} =~ s/\n//gs;       #REMOVE LFS ADDED BY NETSCAPE TEXTAREAS! #REMOVED 20011107 - ALLOW \n IN DATA!
 		#$values->{$i} =~ s/\r /\r/gs;    #20000108: FIX LFS PREV. CONVERTED TO SPACES! #REMOVED 20011107 (SHOULDN'T NEED ANYMORE).
 		$values->{$i} = "''"  unless ($values->{$i} =~ /\S/);
 		$valuenames{$i} = $values->{$i};
 	}
-    local $SIG{'__WARN__'} = sub { $status = -510; $errdetails = "$_[0] at ".__LINE__ };
-    local $^W = 0;
+	local $SIG{'__WARN__'} = sub { $status = -510; $errdetails = "$_[0] at ".__LINE__ };
+	local $^W = 0;
 	local ($_);
-    $status  = 1;
-    $results = [];
-    @columns = split (/,/, $column_string);
+	$status  = 1;
+	$results = [];
+	@columns = split (/,/, $column_string);
 
 	if ($command eq 'update')  #ADDED NEXT 11 LINES 20011029 TO PROTECT AUTOSEQUENCE FIELDS FROM UPDATES.
 	{
@@ -1309,8 +1338,8 @@ sub parse_columns
 			}
 		}
 	}
-    #$single  = ($#columns) ? $columns[$[] : $column_string;
-    $single  = ($#columns) ? $columns[$#columns] : $column_string;
+	#$single  = ($#columns) ? $columns[$[] : $column_string;
+	$single  = ($#columns) ? $columns[$#columns] : $column_string;
 	$rowcnt = 0;
 
 	my (@these_results);
@@ -1344,16 +1373,17 @@ sub parse_columns
 	my $blobfid;
 	my $jj;
 	$self->{sprite_reclimit} ||= $self->{sprite_sizelimit};  #ADDED 20020530 FOR SQL-PERL PLUS!
-    for ($loop=0; $loop < scalar @{ $self->{records} }; $loop++)
+	for ($loop=0; $loop < scalar @{ $self->{records} }; $loop++)
 	{
 		next unless (defined $self->{records}->[$loop]);    #JWT: DON'T RETURN BLANK DELETED RECORDS.
 		$_ = $self->{records}->[$loop];
 		$@ = '';
-#print "<<<<<<< JSPRITE EVAL CONDITION=$condition=\n";
-		if ( !$condition || (eval $condition) ) {
-		    if ($command eq 'select')
-		    {
-		    		last  if ($self->{sprite_reclimit} && $loop >= $self->{sprite_reclimit});  #ADDED 20020123 TO SPEED UP INFO-ONLY. FETCHES.
+#####print "<<<<<<< JSPRITE EVAL CONDITION=$condition=\n";
+		if ( !$condition || (eval $condition) )
+		{
+			if ($command eq 'select')
+			{
+				last  if ($self->{sprite_reclimit} && $loop >= $self->{sprite_reclimit});  #ADDED 20020123 TO SPEED UP INFO-ONLY. FETCHES.
 				if ($fields)
 				{
 					@these_results = ();
@@ -1380,8 +1410,8 @@ sub parse_columns
 							else
 							{
 								$blobfid = $self->{directory}
-										.$self->{separator}->{ $self->{platform} }
-										.$self->{table}."_${rawvalue}.ldt";
+									.$self->{separator}->{ $self->{platform} }
+									.$self->{table}."_${rawvalue}.ldt";
 								if (open(FILE, "<$blobfid"))
 								{
 									binmode FILE;
@@ -1407,192 +1437,194 @@ sub parse_columns
 				}
 				else   #I THINK THIS IS DEAD CODE!!!
 				{
-print "<BR>-pc: SHOULD BE DEAD-CODE, PLEASE EMAIL JIM TURNER THE QUERY WHICH GOT HERE!<BR>\n";
-foreach my $i (@columns) {print "<BR>     $i:  =$_{$i}=\n";};
+#print "<BR>-pc: SHOULD BE DEAD-CODE, PLEASE EMAIL JIM TURNER THE QUERY WHICH GOT HERE!<BR>\n";
+#foreach my $i (@columns) {print "<BR>     $i:  =$_{$i}=\n";};
 					push (@$results, [ @$_{@columns} ]);
 				}
-		    }
-		    elsif ($command eq 'update') {
-		    @perlmatches = ();
-		    for (my $i=0;$i<=$#perlconds;$i++)
-		    {
-		    		eval $perlconds[$i];
-		    }
-			$code = '';
-			my ($matchcnt) = 0;
-			my (@valuelist) = keys(%$values);
-			#my ($dontchkcols) = '('.join('|',@valuelist).')';
-			my ($dontchkcols) = '('.join('|',@valuelist);
-			for (my $i=0;$i<=$#columns;$i++)
-			{
-				$dontchkcols .= '|'.$columns[$i] 	if ($coltypes[$i]);
 			}
-			$dontchkcols .= ')';
-			foreach $i (@valuelist)
+			elsif ($command eq 'update')
 			{
-				for ($j=0;$j<=$#keyfields;$j++)
+				@perlmatches = ();
+				for (my $i=0;$i<=$#perlconds;$i++)
 				{
-					if ($i eq $keyfields[$j])
+					eval $perlconds[$i];
+				}
+				$code = '';
+				my ($matchcnt) = 0;
+				my (@valuelist) = keys(%$values);
+				#my ($dontchkcols) = '('.join('|',@valuelist).')';
+				my ($dontchkcols) = '('.join('|',@valuelist);
+				for (my $i=0;$i<=$#columns;$i++)
+				{
+					$dontchkcols .= '|'.$columns[$i] 	if ($coltypes[$i]);
+				}
+				$dontchkcols .= ')';
+				foreach $i (@valuelist)
+				{
+					for ($j=0;$j<=$#keyfields;$j++)
 					{
-K: 
-						for ($k=0;$k < scalar @{ $self->{records} }; $k++)
+						if ($i eq $keyfields[$j])
 						{
-							$rawvalue = $values->{$i};
-							$rawvalue =~ s/^\'(.*)\'\s*$/$1/s;
-							if ($self->{records}->[$k]->{$i} eq $rawvalue)
+K:							for ($k=0;$k < scalar @{ $self->{records} }; $k++)
 							{
-								foreach $jj (@keyfields)
+								$rawvalue = $values->{$i};
+								$rawvalue =~ s/^\'(.*)\'\s*$/$1/s;
+								if ($self->{records}->[$k]->{$i} eq $rawvalue)
 								{
-									unless ($jj =~ /$dontchkcols/)
+									foreach $jj (@keyfields)
 									{
-										next K  
+										unless ($jj =~ /$dontchkcols/)
+										{
+											next K  
 											unless ($self->{records}->[$k]->{$jj} 
 											eq $_->{$jj});
+										}
 									}
+									goto MATCHED1;
 								}
-								goto MATCHED1;
+							}
+							goto NOMATCHED1;
+MATCHED1:							++$matchcnt;
+						}
+					}
+				}
+				return (-518)  if ($matchcnt && $matchcnt > $#valuelist);   #ALL KEY FIELDS WERE DUPLICATES!
+				NOMATCHED1:
+				$self->{dirty} = 1;
+				foreach $jj (@columns)  #JWT 19991104: FORCE TRUNCATION TO FIT!
+				{
+					$colskipreformat = $skipreformat;
+					#$rawvalue = $values->{$jj};  #CHGD TO NEXT 20011018.
+					$rawvalue = $valuenames{$jj};
+					#NEXT LINE ADDED 20011018 TO HANDLE PERL REGEX SUBSTITUTIONS.
+					$colskipreformat = 0  if ($rawvalue =~ s/\$(\d)/$perlmatches[$1-1]/g);
+					if ($valuenames{$jj} =~ /^[_a-zA-Z]/)  #NEXT 5 LINES ADDED 20000516 SO FUNCTIONS WILL WORK IN UPDATES!
+					{
+						if ($self->{sprite_CaseFieldNames})
+						{
+							unless ($self->{fields}->{"$valuenames{$jj}"})  #ADDED TEST 20001218 TO ALLOW FIELD-NAMES AS RIGHT-VALUES.
+							{
+								#$rawvalue = &chkcolumnparms($self, $valuenames{$jj}); #CHGD. TO NEXT 20011018.
+								$rawvalue = &chkcolumnparms($self, $rawvalue);
+								$rawvalue = eval $rawvalue;   #FUNCTION EVAL 3
+								return (-517)  if ($@);
+							}
+							else
+							{
+							$rawvalue = $_->{$valuenames{$jj}};
 							}
 						}
-						goto NOMATCHED1;
-MATCHED1: ;
-						++$matchcnt;
-					}
-				}
-			}
-			return (-518)  if ($matchcnt && $matchcnt > $#valuelist);   #ALL KEY FIELDS WERE DUPLICATES!
-NOMATCHED1:
-			$self->{dirty} = 1;
-			foreach $jj (@columns)  #JWT 19991104: FORCE TRUNCATION TO FIT!
-			{
-				$colskipreformat = $skipreformat;
-				#$rawvalue = $values->{$jj};  #CHGD TO NEXT 20011018.
-				$rawvalue = $valuenames{$jj};
-				#NEXT LINE ADDED 20011018 TO HANDLE PERL REGEX SUBSTITUTIONS.
-				$colskipreformat = 0  if ($rawvalue =~ s/\$(\d)/$perlmatches[$1-1]/g);
-				if ($valuenames{$jj} =~ /^[_a-zA-Z]/)  #NEXT 5 LINES ADDED 20000516 SO FUNCTIONS WILL WORK IN UPDATES!
-				{
-					if ($self->{sprite_CaseFieldNames})
-					{
-						unless ($self->{fields}->{"$valuenames{$jj}"})  #ADDED TEST 20001218 TO ALLOW FIELD-NAMES AS RIGHT-VALUES.
-						{
-							#$rawvalue = &chkcolumnparms($self, $valuenames{$jj}); #CHGD. TO NEXT 20011018.
-							$rawvalue = &chkcolumnparms($self, $rawvalue);
-							$rawvalue = eval $rawvalue;   #FUNCTION EVAL 3
-							return (-517)  if ($@);
-						}
 						else
 						{
-							$rawvalue = $_->{$valuenames{$jj}};
+							unless ($self->{fields}->{"\U$valuenames{$jj}\E"})  #ADDED TEST 20001218 TO ALLOW FIELD-NAMES AS RIGHT-VALUES.
+							{
+								#$rawvalue = &chkcolumnparms($self, $valuenames{$jj}); #CHGD. TO NEXT 20011018.
+								$rawvalue = &chkcolumnparms($self, $rawvalue);
+								$rawvalue = eval $rawvalue;   #FUNCTION EVAL 3
+								return (-517)  if ($@);
+							}
+							else
+							{
+								$rawvalue = $_->{$valuenames{$jj}};
+							}
 						}
+						$colskipreformat = 0;
 					}
 					else
 					{
-						unless ($self->{fields}->{"\U$valuenames{$jj}\E"})  #ADDED TEST 20001218 TO ALLOW FIELD-NAMES AS RIGHT-VALUES.
-						{
-							#$rawvalue = &chkcolumnparms($self, $valuenames{$jj}); #CHGD. TO NEXT 20011018.
-							$rawvalue = &chkcolumnparms($self, $rawvalue);
-							$rawvalue = eval $rawvalue;   #FUNCTION EVAL 3
-							return (-517)  if ($@);
-						}
-						else
-						{
-							$rawvalue = $_->{$valuenames{$jj}};
-						}
+						$rawvalue =~ s/^\'(.*)\'\s*$/$1/s  if ($valuenames{$jj} =~ /^\'/);
 					}
-					$colskipreformat = 0;
-				}
-				else
-				{
-					$rawvalue =~ s/^\'(.*)\'\s*$/$1/s  if ($valuenames{$jj} =~ /^\'/);
-				}
-				#if (${$self->{types}}{$jj} =~ /$NUMERICTYPES/)  #CHGD TO NEXT LINE 20010313.
+					#if (${$self->{types}}{$jj} =~ /$NUMERICTYPES/)  #CHGD TO NEXT LINE 20010313.
 
-				unless ($colskipreformat)   #ADDED 20011018 TO OPTIMIZE.
-				{
-					if (length($rawvalue) > 0 && ${$self->{types}}{$jj} =~ /$NUMERICTYPES/)
+					unless ($colskipreformat)   #ADDED 20011018 TO OPTIMIZE.
 					{
-						$k = sprintf(('%.'.${$self->{scales}}{$jj}.'f'), 
-								$rawvalue);
-					}
-					else
-					{
-						$k = $rawvalue;
-					}
-					#$rawvalue = substr($k,0,${$self->{lengths}}{$jj});
-					$rawvalue = (${$self->{types}}{$jj} =~ /$BLOBTYPES/) ? $k : substr($k,0,${$self->{lengths}}{$jj});
-					unless ($self->{LongTruncOk} || $rawvalue eq $k || 
-							(${$self->{types}}{$jj} eq 'FLOAT'))
-					{
-						$errdetails = "$jj to ${$self->{lengths}}{$jj} chars";
-						return (-519);   #20000921: ADDED (MANY PLACES) LENGTH TO ERRDETAILS "(fieldname to ## chars)"
-					}
-					if ((${$self->{types}}{$jj} eq 'FLOAT') 
-							&& (int($rawvalue) != int($k)))
-					{
-						$errdetails = "$jj to ${$self->{lengths}}{$jj} chars";
-						return (-519);
-					}
-					#if (${$self->{types}}{$jj} eq 'CHAR')  #CHGD. TO NEXT 20030812.
-					if (${$self->{types}}{$jj} eq 'CHAR' && length($rawvalue) > 0)
-					{
-						$values->{$jj} = "'" . sprintf(
-								'%-'.${$self->{lengths}}{$jj}.'s',
-								$rawvalue) . "'";
-					}
-					#elsif (${$self->{types}}{$jj} !~ /$NUMERICTYPES/)  #CHGD. TO NEXT 20010313.
-					elsif (!length($rawvalue) || ${$self->{types}}{$jj} !~ /$NUMERICTYPES/)
-					{
-						$values->{$jj} = "'" . $rawvalue . "'";
-					}
-					else
-					{
-						$values->{$jj} = $rawvalue;
-					}
-				}
-			}
-			#map { $code .= qq|\$_->{'$_'} = $values->{$_};| } @columns;  #NEXT 2 CHGD TO NEXT 34 20020125 TO SUPPORT BLOB REFERENCING.
-			#eval $code;
-			for (my $i=0;$i<=$#columns;$i++)
-			{
-				if ($coltypes[$i])   #BLOB REF.
-				{
-					$code = qq|\$rawvalue = $values->{$columns[$i]};|;
-					eval $code;
-					$blobfid = $self->{directory}.$self->{separator}->{ $self->{platform} }
-							.$self->{table}.'_'.$_->{$columns[$i]}."_$$.tmp";
-					if (open(FILE, ">$blobfid"))
-					{
-						binmode FILE;
-						if ($self->{CBC} && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
+						if (length($rawvalue) > 0 && ${$self->{types}}{$jj} =~ /$NUMERICTYPES/)
 						{
-							print FILE $self->{CBC}->encrypt($rawvalue);
+							$k = sprintf(('%.'.${$self->{scales}}{$jj}.'f'), 
+							$rawvalue);
 						}
 						else
 						{
-							print FILE $rawvalue;
+							$k = $rawvalue;
 						}
-						close FILE;
+						#$rawvalue = substr($k,0,${$self->{lengths}}{$jj});
+						$rawvalue = (${$self->{types}}{$jj} =~ /$BLOBTYPES/) ? $k : substr($k,0,${$self->{lengths}}{$jj});
+						unless ($self->{LongTruncOk} || $rawvalue eq $k || 
+								(${$self->{types}}{$jj} eq 'FLOAT'))
+						{
+							$errdetails = "$jj to ${$self->{lengths}}{$jj} chars";
+							return (-519);   #20000921: ADDED (MANY PLACES) LENGTH TO ERRDETAILS "(fieldname to ## chars)"
+						}
+						if ((${$self->{types}}{$jj} eq 'FLOAT') 
+								&& (int($rawvalue) != int($k)))
+						{
+							$errdetails = "$jj to ${$self->{lengths}}{$jj} chars";
+							return (-519);
+						}
+						#if (${$self->{types}}{$jj} eq 'CHAR')  #CHGD. TO NEXT 20030812.
+						if (${$self->{types}}{$jj} eq 'CHAR' && length($rawvalue) > 0)
+						{
+							$values->{$jj} = "'" . sprintf(
+									'%-'.${$self->{lengths}}{$jj}.'s',
+									$rawvalue) . "'";
+						}
+						#elsif (${$self->{types}}{$jj} !~ /$NUMERICTYPES/)  #CHGD. TO NEXT 20010313.
+						elsif (!length($rawvalue) || ${$self->{types}}{$jj} !~ /$NUMERICTYPES/)
+						{
+							$values->{$jj} = "'" . $rawvalue . "'";
+						}
+						else
+						{
+							$values->{$jj} = $rawvalue;
+						}
+					}
+				}
+#map { $code .= qq|\$_->{'$_'} = $values->{$_};| } @columns;  #NEXT 2 CHGD TO NEXT 34 20020125 TO SUPPORT BLOB REFERENCING.
+#eval $code;
+				for (my $i=0;$i<=$#columns;$i++)
+				{
+					if ($coltypes[$i])   #BLOB REF.
+					{
+						$code = qq|\$rawvalue = $values->{$columns[$i]};|;
+						eval $code;
+						$blobfid = $self->{directory}.$self->{separator}->{ $self->{platform} }
+						.$self->{table}.'_'.$_->{$columns[$i]}."_$$.tmp";
+						if (open(FILE, ">$blobfid"))
+						{
+							binmode FILE;
+							if ($self->{CBC} && $self->{sprite_Crypt} <= 2)  #ADDED: 20020109
+							{
+								print FILE $self->{CBC}->encrypt($rawvalue);
+							}
+							else
+							{
+								print FILE $rawvalue;
+							}
+							close FILE;
+						}
+						else
+						{
+							$errdetails = "$blobfid: ($?)";
+							return (-528);
+						}
 					}
 					else
 					{
-						$errdetails = "$blobfid: ($?)";
-						return (-528);
+						$code = qq|\$_->{'$columns[$i]'} = $values->{$columns[$i]};|;
+						eval $code;
 					}
 				}
-				else
-				{
-					$code = qq|\$_->{'$columns[$i]'} = $values->{$columns[$i]};|;
-					eval $code;
-				}
+
+				return (-517)  if ($@);
 			}
-			
-					return (-517)  if ($@);
-		    } elsif ($command eq 'add') {
+			elsif ($command eq 'add')
+			{
 				$_->{$single} = '';   #ORACLE DOES NOT SET EXISTING RECORDS TO DEFAULT VALUE!
-	
-		    } elsif ($command eq 'drop') {
-			delete $_->{$single};
-		    }
+			}
+			elsif ($command eq 'drop')
+			{
+				delete $_->{$single};
+			}
 			++$rowcnt;
 			$skipreformat = 1;
 		}
@@ -1603,15 +1635,20 @@ NOMATCHED1:
 			return -505  if ($command eq 'delete');
 			return -504;
 		}
-    }
-    if ($status <= 0)
+	}
+	if ($status <= 0)
 	{
 		return $status;
 	}
 	elsif ( $command ne 'select' )
 	{
 		return $rowcnt;
-    } else {
+	}
+	else
+	{
+		my $theresanull = 0;    #ADDED 20030930 TO HANDLE SINGLE NULL ELEMENT TO FIX _set_fbav ERROR!
+		my $rowcntdigits = length(scalar(@$results));  #ADDED 20050514 TO ENSURE SORTING WORKS CORRECTLY.
+		my ($ii, $t);
 		if ($distinct)   #THIS IF ADDED 20010521 TO MAKE "DISTINCT" WORK.
 		{
 			my (%disthash);
@@ -1620,8 +1657,8 @@ NOMATCHED1:
 				++$disthash{join("\x02\^2jSpR1tE\x02",@{$results->[$i]})};
 			}
 			@$results = ();
-			my $theresanull = 0;    #ADDED 20030930 TO HANDLE SINGLE NULL ELEMENT TO FIX _set_fbav ERROR!
-			foreach my $i (sort keys(%disthash))
+			#foreach my $i (sort keys(%disthash))  #CHGD. TO NEXT 20050514 - UNNECESSARY TO SORT.
+			foreach my $i (keys(%disthash))
 			{
 				if ($i eq '')   #(20030930) SINGLE NULL ELEMENT MUST GO ON *END* OF ARRAY!
 				{
@@ -1630,10 +1667,6 @@ NOMATCHED1:
 				}
 #				push (@$results, [split(/\x02\^2jSpR1tE\x02/, $i)]);   #CHGD. TO NEXT 20031001 TO FIX _set_fbav ERROR!
 				push (@$results, [split(/\x02\^2jSpR1tE\x02/, $i, -1)]);
-			}
-			if ($theresanull)    #ADDED 20030930 TO HANDLE SINGLE NULL ELEMENT TO FIX _set_fbav ERROR!
-			{
-				push (@$results, '');
 			}
 		}
 		if (@$ordercols)   #COMPLETELY OVERHAULED 20020708 TO SUPPORT MULTIPLE ASCENDING/DESCENDING DECISIONS & SORTING ON COLUMNS NOT IN RESULT-SET!
@@ -1655,8 +1688,9 @@ NOMATCHED1:
 			}
 			for (my $i=0;$i<=$#$results;$i++)
 			{
-				push (@SI, $i);
-				push (@SSA, $i);
+				$t = sprintf('%'.$rowcntdigits.'.'.$rowcntdigits.'d', $i); #ADDED 20050514 TO ENSURE SORTING WORKS CORRECTLY.
+				push (@SI, $t);
+				push (@SSA, $t);
 			}
 			my $jcnt = 0;
 			my $do = ($descorder->[0] =~ /de/i) ? 1 : 0;
@@ -1664,12 +1698,13 @@ NOMATCHED1:
 			foreach my $j (@$ordercols)
 			{
 				$j =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
-				$k = $colorder{$j} || -1;
+				#$k = $colorder{$j} || -1;   #CHGD. TO NEXT 20050514 TO FIX BUG THAT PREVENTED SORTING FROM WORKING W/SELECT DISTINCT.
+				$k = defined($colorder{$j}) ? $colorder{$j} : -1;
 				for (my $i=0;$i<=$#$results;$i++)
 				{
 					$fieldval = ($k >= 0) ?
-							${$results}[$SI[$i]]->[$k] 
-							: $self->{records}->[$result_index[$SI[$i]]]->{$j};
+					${$results}[$SI[$i]]->[$k] 
+					: $self->{records}->[$result_index[$SI[$i]]]->{$j};
 					if (${$self->{types}}{$j} eq 'FLOAT' || ${$self->{types}}{$j} eq 'DOUBLE')
 					{
 						push (@SA, (sprintf('%'.${$self->{lengths}}{$j}.${$self->{scales}}{$j}.'e',$fieldval) . $mysep[$do] . $SSA[$i]));
@@ -1689,27 +1724,15 @@ NOMATCHED1:
 				@SI = reverse(@SI)  if ($do);
 				@SA = ();
 				my $ii = $#SI;
-				my $l = length($ii);
+				$l = length($ii);
 				if ($jcnt < $#$ordercols)
 				{
 					$do = ($descorder->[++$jcnt] =~ /de/i) ? 1 : 0;
-					if ($do)
+					for (my $i=0;$i<=$#SI;$i++)
 					{
-						for (my $i=0;$i<=$#SI;$i++)
-						{
-							$SI[$i] =~ /(\d+)$/;
-							$SI[$i] = $1;
-							push (@SSA, sprintf("%${l}d",$ii--) . $mysep[$do] . $SI[$i]);
-						}
-					}
-					else
-					{
-						for (my $i=0;$i<=$#SI;$i++)
-						{
-							$SI[$i] =~ /(\d+)$/;
-							$SI[$i] = $1;
-							push (@SSA, sprintf("%${l}d",$i) . $mysep[$do] . $SI[$i]);
-						}
+						$SI[$i] = $1  if ($SI[$i] =~ /(\d+)$/);
+						#push (@SSA, sprintf("%${l}d",$ii--) . $mysep[$do] . $SI[$i]);   #CHGD. TO NEXT 20050514 TO ENSURE SORTING WORKS CORRECTLY.
+						push (@SSA, sprintf("%${l}d",($do ? $ii-- : $i)) . $mysep[$do] . sprintf('%'.$rowcntdigits.'.'.$rowcntdigits.'d',$SI[$i]));
 					}
 				}
 			}
@@ -1717,13 +1740,17 @@ NOMATCHED1:
 			@$results = ();
 			for (my $i=0;$i<=$#SI;$i++)
 			{
-				$SI[$i] =~ /(\d+)$/;
-				$SI[$i] = $1;
+				$SI[$i] = $1  if ($SI[$i] =~ /(\d+)$/);
 				push (@$results, $SA[$SI[$i]]);
 			}
 		}
-		$rowcnt = $#$results + 1;
-    }
+		if ($theresanull)    #ADDED 20030930 TO HANDLE SINGLE NULL ELEMENT TO FIX _set_fbav ERROR!
+		{
+			unshift (@$results, ['']);
+		}
+#$rowcnt = $#$results + 1;
+		$rowcnt = scalar(@{$results});
+	}
 	unshift (@$results, $rowcnt);
 	return $results;
 }
@@ -1837,7 +1864,7 @@ sub select
     $regex = $self->{_select};
     $path  = $self->{path};
 #$fieldregex = $self->{fieldregex};
-	my ($psuedocols) = "CURVAL|NEXTVAL";
+	my ($psuedocols) = "CURRVAL|NEXTVAL";
 
 	my $distinct;   #NEXT 2 ADDED 20010521 TO ADD "DISTINCT" CAPABILITY!
 	$distinct = 1  if ($query =~ /^select\s+distinct/);
@@ -1903,8 +1930,12 @@ END_CODE
 
 		#SPLIT UP THE FIELDS BEING REQUESTED.
 
+		$self->{ASNAMES} = {};  #ADDED NEXT 4 LINES 20040913 TO SUPPORT "AS".
+		while ($column_stuff =~ s/($self->{column})\s+(?:AS|as)\s+($self->{column})/$1/)
+		{
+			$self->{ASNAMES}->{$1} = $2;
+		};
 		$column_stuff =~ s/\s+$//;
-
 		while (1)
 		{
 			$found_parin = 0;
@@ -1945,9 +1976,9 @@ END_CODE
 		#$self->check_for_reload ($table) || return (-501);  #CHGD. TO NEXT 20020110 TO BETTER CATCH ERRORS.
 		my $cfr = $self->check_for_reload($table) || -501;
 		return $cfr  if ($cfr < 0);
-		my ($column_list) = '('.join ('|', @{ $self->{order} }).')';
 		$columns = '';
 		my (@strings);
+		my ($column_list) = '('.join ('|', @{ $self->{order} }).')';
 
 		#DETERMINE WHICH WORDS ARE VALID COLUMN NAMES AND CONVERT THEM INTO 
 		#THE VARIABLE FOR LATER EVAL IN PARSE_EXPRESSION!  OTHER WORDS ARE 
@@ -2063,7 +2094,7 @@ sub update
     my ($self, $query) = @_;
     my ($i, $path, $regex, $table, $extra, $condition, $all_columns, 
 	$columns, $status);
-	my ($psuedocols) = "CURVAL|NEXTVAL";
+	my ($psuedocols) = "CURRVAL|NEXTVAL";
 
     ##++
     ##  Hack to allow parenthesis to be escaped!
@@ -2329,6 +2360,7 @@ sub create
 	if ($query =~ /^create\s+table\s+($self->{path})\s*\((.+)\)\s*$/is)
 	{
 		my ($table, $extra) = ($1, $2);
+
 	    $query =~ tr/a-z/A-Z/s  unless ($self->{sprite_CaseFieldNames});  #ADDED 20000225;
 	    #$extra =~ tr/a-z/A-Z/;  #ADDED 20000225;
 		$extra =~ s/^\s*//s;
@@ -2797,7 +2829,7 @@ sub insert
 		if ($values[$i] =~ /^[_a-zA-Z]/s)
 		{
 			if ($values[$i] =~ /\s*(\w+).NEXTVAL\s*$/ 
-					|| $values[$i] =~ /\s*(\w+).CURVAL\s*$/)
+					|| $values[$i] =~ /\s*(\w+).CURRVAL\s*$/)
 			{
 				my ($seq_file) = $self->get_path_info($1) . '.seq';
 				#### REMOVED 20010814 - ALREAD DONE IN GET_PATH_INFO!!!! ####$seq_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
@@ -2852,25 +2884,46 @@ sub insert
 sub insert_data
 {
     my ($self, $column_string, @values) = @_;
-    my (@columns, $hash, $loop, $column, $j, $k);
+    my (@columns, $hash, $loop, $column, $j, $k, $autoColumnIncluded);
 	$column_string =~ tr/a-z/A-Z/  unless ($self->{sprite_CaseFieldNames});
     @columns = split (/,/, $column_string);
-    #JWT: @values  = $self->quotewords (',', 0, $value_string);
-	if ($#columns > $#values)  #ADDED 20011029 TO DO AUTOSEQUENCING!
-	{
-		$column_string .= ','  unless ($column_string =~ /\,\s*$/);
-		for (my $i=0;$i<=$#columns;$i++)
+    foreach my $i (@{ $self->{order} })   #NEXT LOOP ADDED 20040913 TO SUPPORT AUTONUMBERING W/O SPECIFYING COLUMN ON INSERT (LIKE MYSQL)?
+    {
+		if (${$self->{types}}{$i} =~ /AUTO/i)
 		{
-			if (${$self->{types}}{$columns[$i]} =~ /AUTO/)
+			$autoColumnIncluded = 0;
+			foreach my $j (@columns)
 			{
-				$column_string =~ s/$columns[$i]\,//;
-				$column_string .= $columns[$i] . ',';
-				push (@values, "''");
+				if ($j eq $i)
+				{
+					$autoColumnIncluded = 1;
+					last;
+				}
+			}
+			unless ($autoColumnIncluded)
+			{
+				push (@columns, $i);
+				push (@values, '');
 			}
 		}
-		$column_string =~ s/\,\s*$//;
-		@columns = split (/,/, $column_string);
 	}
+	$column_string = join(',', @columns);
+    #JWT: @values  = $self->quotewords (',', 0, $value_string);
+#	if ($#columns > $#values)  #ADDED 20011029 TO DO AUTOSEQUENCING!
+#	{
+#		$column_string .= ','  unless ($column_string =~ /\,\s*$/);
+#		for (my $i=0;$i<=$#columns;$i++)
+#		{
+#			if (${$self->{types}}{$columns[$i]} =~ /AUTO/)
+#			{
+#				$column_string =~ s/$columns[$i]\,//;
+#				$column_string .= $columns[$i] . ',';
+#				push (@values, "''");
+#			}
+#		}
+#		$column_string =~ s/\,\s*$//;
+#		@columns = split (/\,/, $column_string);
+#	}
     if ($#columns == $#values) {
     
 	my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
@@ -3010,7 +3063,6 @@ keyloop:			for ($j=0;$j<=$#keyfields;$j++)
 	push @{ $self->{records} }, $hash;
 	
 	$self->{dirty} = 1;
-	
 	return (1);
     } else {
 		$errdetails = "$#columns != $#values";   #20000114
@@ -3533,7 +3585,7 @@ END_XML
 sub pscolfn
 {
 	my ($self,$id) = @_;
-	return $id  unless ($id =~ /CURVAL|NEXTVAL/);
+	return $id  unless ($id =~ /CURRVAL|NEXTVAL/);
 	my ($value) = '';
 	my ($seq_file,$col) = split(/\./,$id);
 	$seq_file = $self->get_path_info($seq_file) . '.seq';

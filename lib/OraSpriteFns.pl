@@ -188,16 +188,17 @@ sub MONTHS_BETWEEN   #ASSUMES 30-DAY MONTHS - APPROXIMATES THE ORACLE FUNCTION!
 	return $secbtn / (30*86400);
 }
 
-sub NVL
+sub NVL    #CHGD. TO LAST LINE 20040325 TO MAKE WORK LIKE ORACLE!?
 {
-	my (@parms) = @_;
-	my ($t);
-	while ($#parms >= 0)
-	{
-		$t = shift(@parms);
-		return $t  if (defined($t) && $t ne '');
-	}
-	return defined($t) ? $t : '';
+#	my (@parms) = @_;
+#	my ($t);
+#	while ($#parms >= 0)
+#	{
+#		$t = shift(@parms);
+#		return $t  if (defined($t) && $t ne '');
+#	}
+#	return defined($t) ? $t : '';
+	return (length($_[0]) ? $_[0] : $_[1]);
 }
 
 sub POWER

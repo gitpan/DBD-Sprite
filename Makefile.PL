@@ -8,6 +8,7 @@ WriteMakefile(
     'NAME'	=> 'DBD::Sprite',
     'VERSION_FROM' => 'lib/DBD/Sprite.pm', # finds $VERSION
     'INC'	=> $DBI_INC_DIR,
+	'EXE_FILES' => ['makesdb.pl'],
     'dist'	=> { 'SUFFIX' => '.gz',
 		     'COMPRESS' => 'gzip -9f' },
     #'realclean'	=> '*.xsi'

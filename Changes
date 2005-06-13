@@ -272,3 +272,23 @@ Revision history for Perl extension DBD::Sprite.
 	  docs for an example.  Test & enjoy! ;)
 	- Fixed small bug that prevented passing bind-arguments containing an 
 	  escaped single-quote to a "like" expression in a where-clause.
+0.51  Thu Apr 22 2004
+	- Added new DBI function "last_insert_id" to return the value of the last 
+	  sequence number used.  Refer to the DBI docs for arguments and how to 
+	  use this function.  The general format is:
+	  $number = $dB->func(undef, undef, 'tablename', 'fieldname', 'last_insert_id')
+	- Added new option "sprite_nocase" to support case-insensitive 
+	  where-clauses like LDAP.  NOTE - only currently for "LIKE/NOT LIKE".  If 
+	  set to a true value, then case is ignored for expressions like:  
+	  "where FIELD like 'abc%'".  Default is false.
+	- Fixed bug which prevented the argument to a "like" expression from working 
+	  if it contained an escaped single-quote.
+0.55	 Fri Apr 29 2005
+	- Fixed bug that caused single-quotes enclosed in variables bound to 
+	  placeholders to fail and or seg-fault.
+	- Fixed bug that caused single-quotes in in-line where-cluse values 
+	  (those not bound using placeholders) to be converted to a pair of 
+	  double-quotes, causing condition test to fail.
+0.56  Sat May 14 2005
+	- Fixed bug that prevented sorting from working and returning all records 
+	  when doing a SELECT DISTINCT with ORDER BY on a single column.

@@ -9,3 +9,5 @@ lib/to_char.pl
 lib/DBD/Sprite.pm
 test.pl
 makesdb.pl
+DBDSprite.htm
+META.yml                                 Module meta-data (added by MakeMaker)

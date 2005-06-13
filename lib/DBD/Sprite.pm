@@ -15,9 +15,9 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 # names by default without a very good reason. Use EXPORT_OK instead.
 # Do not simply export all your public functions/methods/constants.
 #@EXPORT = qw(
-	
+
 #);
-$VERSION = '0.50';
+$VERSION = '0.56';
 
 # Preloaded methods go here.
 
@@ -62,8 +62,9 @@ $DBD::Sprite::dr::imp_data_size = 0;
 
 sub connect {
     my($drh, $dbname, $dbuser, $dbpswd, $attr, $old_driver, $connect_meth) = @_;
-#print "-connect: pswd=$dbpswd= attr=$attr=\n";
-#foreach my $xx (keys %$attr) {print "-key=$xx= val=".$attr->{$xx}."=\n";};
+
+#DON'T PASS ATTRIBUTES IN AS A STRING, MUST BE A HASH-REF!
+
     my($port);
     my($cWarn, $i, $j);
 
@@ -109,12 +110,18 @@ sub connect {
 			{
 				unless (open(DBFILE, "<$dbfid"))
 				{
-					unless (open(DBFILE, "<$ENV{HOME}/$dbfid"))
+					unless (open(DBFILE, "<$ENV{HOME}/$dbfid"))  #NEXT 4 ADDED 20040909
 					{
-						#DBI::set_err($this, -1, "No such database ($dbname)!");  #REPLACED W/NEXT LINE 20021021!
-						warn "No such database ($dbname)!"  if ($attr->{PrintError});
-						$_ = "-1:No such database ($dbname)!";
-						return undef;
+						my $pgmhome = $0;
+						$pgmhome =~ s#[^/\\]*$##;  #SET NAME TO SQL.PL FOR ORAPERL!
+						$pgmhome ||= './';
+						unless (open(DBFILE, "<${pgmhome}/$dbfid"))
+						{
+							#DBI::set_err($this, -1, "No such database ($dbname)!");  #REPLACED W/NEXT LINE 20021021!
+							warn "No such database ($dbname)!"  if ($attr->{PrintError});
+							$_ = "-1:No such database ($dbname)!";
+							return undef;
+						}
 					}
 				}
 			}
@@ -296,27 +303,71 @@ use JSprite;
 $DBD::Sprite::db::imp_data_size = 0;
 use vars qw($imp_data_size);
 
+sub last_insert_id     #MUST BE CALLED W/"$dbh->func"!   ADDED 20040407 TO SUPPORT NEW DBI FUNCTION.
+{
+	my ($resptr, $cat, $schema, $tablename, $seqfield) = @_;
+
+	return $resptr->{sprite_insertid}  if (defined $resptr->{sprite_insertid} && $resptr->{sprite_insertid} =~ /\d$/);
+	my $mycsr;
+	if ($mycsr = $resptr->prepare("select ${seqfield}.CURRVAL from DUAL"))
+	{
+		my $myexe;
+		if ($myexe = $mycsr->execute())
+		{
+			my ($lastseq) = $mycsr->fetchrow_array();
+			$mycsr->finish();
+			return $lastseq  if ($lastseq =~ /\d$/);
+		}
+	}
+	if ($seqfield)    #IF ALL ELSE FAILS, FETCH A DESCENDING LIST OF VALUES FOR THE FIELD THE SEQUENCE WAS INSERTED INTO (USER MUST SPECIFY THE FIELD!)
+	{
+		my $sql = <<END_SQL;
+			select $seqfield
+			from $tablename
+			order by $seqfield desc
+END_SQL
+		if ($mycsr = $resptr->prepare($sql))
+		{
+			my $myexe;
+			if ($myexe = $mycsr->execute())
+			{
+				my ($lastseq) = $mycsr->fetchrow_array();
+				$mycsr->finish();
+				return $lastseq;
+			}
+			else
+			{
+				return undef;
+			}
+		}
+		return undef;
+	}
+	return undef;
+}
+
+sub Statement     #MUST BE CALLED W/"dbh->func([undef, undef, 'tablename', 'seq/field name',] 'last_insert_id')"!   ADDED 20040407 TO SUPPORT NEW DBI FUNCTION.
+{
+	return undef  unless ($_[0]);
+	return $_[0]->FETCH('sprite_last_prepare_sql');
+}
+
 sub prepare
 {
 	my ($resptr, $sqlstr, $attribs) = @_;
-
 	my ($indx, @QS);
 
-if (open (LOG, ">>/tmp/sprite.log"))
-{
-	print LOG "prepare sql=$sqlstr=\n";
-	close LOG;
-}
 	local ($_);
 	#$sqlstr =~ s/\n/ /g;  #REMOVED 20011107.
 	
-	DBI::set_err($resptr, 0, '');
+	#DBI::set_err($resptr, 0, '');   #CHGD. TO NEXT 20041104.
+	DBI::set_err($resptr, undef);
 	
 	$sqlstr =~ s/^\s*listfields\s+(\w+)/select * from $1 where 1 = 0/i;  #ADDED 20030901.
 	my $csr = DBI::_new_sth($resptr, {
 		'Statement' => $sqlstr,
 	});
 
+	$resptr->STORE('sprite_last_prepare_sql', $sqlstr);
 	$csr->STORE('sprite_fetchcnt', 0);
 	$csr->STORE('sprite_reslinev','');
 	$sqlstr =~ s/\\\'|\'\'/\x02\^3jSpR1tE\x02/gs; #PROTECT "\'" IN QUOTES.
@@ -337,10 +388,13 @@ if (open (LOG, ">>/tmp/sprite.log"))
 
 	my $join = 0;
 	my $joininfo;
-	$joininfo = $1  if ($sqlstr =~ /from\s+([\w\.\, ]+)\s*(?:where|order\s+by)/is);
-	$joininfo = $1  if (!$joininfo && $sqlstr =~ /from\s+([\w\.\, ]+)/is);
+	#$joininfo = $1  if ($sqlstr =~ /from\s+([\w\.\, ]+)\s*(?:where|order\s+by)/is);
+	#$joininfo = $1  if (!$joininfo && $sqlstr =~ /from\s+([\w\.\, ]+)/is);
+	#LAST 2 CHGD. TO NEXT 2 20040914.
+	$joininfo = $1  if ($sqlstr =~ /from\s+([\w\.\,\s]+)\s*(?:where|order\s+by)/is);
+	$joininfo = $1  if (!$joininfo && $sqlstr =~ /from\s+([\w\.\,\s]+)/is);
 	my @joinfids;
-	my @joinfids = split(/\,\s*/, $joininfo)  if (defined $joininfo);
+	@joinfids = split(/\,\s*/, $joininfo)  if (defined $joininfo);
 	my (@joinfid, @joinalias);
 	if ($#joinfids >= 1)
 	{
@@ -359,7 +413,6 @@ if (open (LOG, ">>/tmp/sprite.log"))
 		$csr->STORE('sprite_joinalias', \@joinalias);
 		$join = 1;
 	}
-
 	#CHECK TO SEE IF A PREVIOUSLY-CLOSED SPRITE OBJECT EXISTS FOR THIS TABLE.
 	#IF SET, THE "RECYCLE" OPTION TELLS SPRITE NOT TO RELOAD THE TABLE DATA.
 	#THIS IS USEFUL TO SAVE TIME AND MEMORY FOR APPS DOING MULTIPLE 
@@ -367,7 +420,6 @@ if (open (LOG, ">>/tmp/sprite.log"))
 	#RELOADING IS NECESSARY, HOWEVER, IF ANOTHER USER CAN CHANGE THE 
 	#DATA SINCE YOUR LAST COMMIT, SO RECYCLE IS OFF BY DEFAULT!
 	#THE SPRITE HANDLE AND ALL IT'S BASIC CONFIGURATION IS RECYCLED REGARDLESS.
-
 	my (@spritedbs) = (qw(sprite_spritedb sprite_joindb));
 	my ($myspriteref);
 	my $i = 0;
@@ -439,8 +491,6 @@ if (open (LOG, ">>/tmp/sprite.log"))
 
 			$joinsql[$jj] =~ s/^\s+//gs;  #STRIP LEADING, TRAILING SPACES.
 			$joinsql[$jj] =~ s/\s+$//gs;
-#			$joinsql[$jj] =~ s/\\\'|\'\'/\x02\^2jSpR1tE\x02/gs; #PROTECT "\'" IN QUOTES.
-#			$joinsql[$jj] =~ s/\\\"|\"\"/\x02\^3jSpR1tE\x02/gs; #PROTECT "\"" IN QUOTES.
 
 			#CONVERT ALL "jointable.fieldname" to "fieldname" & REMOVE ALL "othertables.fieldname".
 
@@ -530,12 +580,21 @@ outer:				foreach my $j (keys %addfields)
 					for (my $k=0;$k<=$#selectfields;$k++)
 					{
 						next outer  if ($selectfields[$k] eq $j);
-						$listprefix = ',';
+#						$listprefix = ',';   #REMOVED 20040913
 					}
-					$addthesefields .= $listprefix . $j;
+					#$addthesefields .= $listprefix . $j;  #CHGD. TO NEXT 20040913
+					$addthesefields .= $listprefix . $j . ',';
 				}
-				$joinsql[$jj] =~ s/\s+from\s+/ $addthesefields from /;
+				$addthesefields =~ s/\,$//;
+				#$joinsql[$jj] =~ s/\s+from\s+/ $addthesefields from /;  #CHGD. TO NEXT IF-STMT. 20040929.
+				if ($addthesefields)
+				{
+					($joinsql[$jj] =~ s/^\s*select\s+from\s+$joinfid[$jj]/select $addthesefields from	$joinfid[$jj]/is)
+							or
+						($joinsql[$jj] =~ s/\s+from\s+$joinfid[$jj]/,$addthesefields from $joinfid[$jj]/is);
+				}
 			}
+			#$csr->STORE("sprite_bi$jj", $bindindices[$jj]);
 			$csr->STORE("sprite_joinnops$jj", 0);
 
 			#RESTORE QUOTED STRINGS AND ESCAPED QUOTES WITHIN THEM.
@@ -574,8 +633,10 @@ outer:				foreach my $j (keys %addfields)
 			my $quotechar = substr($QS[$one],0,1);
 			($quotechar.substr($QS[$one],1).$quotechar)
 	/es);
-	$sqlstr =~ s/\x02\^3jSpR1tE\x02/\"\"/gs;   #UNPROTECT QUOTES WITHIN QUOTES!
-	$sqlstr =~ s/\x02\^2jSpR1tE\x02/\'\'/gs;
+	#$sqlstr =~ s/\x02\^3jSpR1tE\x02/\"\"/gs;   #BUGFIX: CHGD NEXT 2 TO FOLLOWING 2 20050429.
+	#$sqlstr =~ s/\x02\^2jSpR1tE\x02/\'\'/gs;
+	$sqlstr =~ s/\x02\^4jSpR1tE\x02/\"\"/gs;   #UNPROTECT QUOTES WITHIN QUOTES!
+	$sqlstr =~ s/\x02\^3jSpR1tE\x02/\'\'/gs;
 	$csr->STORE('sprite_statement', $sqlstr);
     return ($csr);
 }
@@ -674,7 +735,8 @@ sub disconnect
 {
 	my ($db) = shift;
 	
-	DBI::set_err($db, 0, '');
+	#DBI::set_err($db, 0, '');   #CHGD. TO NEXT 20041104.
+	DBI::set_err($db, undef);
 	return (1);   #20000114: MAKE WORK LIKE DBI!
 }
 
@@ -683,7 +745,8 @@ sub do
 	my ($dB, $sqlstr, $attr, @bind_values) = @_;
 	my ($csr) = $dB->prepare($sqlstr, $attr) or return undef;
 
-	DBI::set_err($dB, 0, '');
+	#DBI::set_err($dB, 0, '');   #CHGD. TO NEXT 20041104.
+	DBI::set_err($dB, undef);
 	
 	#my $retval = $csr->execute(@bind_values) || undef;
 	return ($csr->execute(@bind_values) || undef);
@@ -840,18 +903,11 @@ sub execute
 {
 	my ($sth, @bind_values) = @_;
 	my $params = (@bind_values) ? \@bind_values : $sth->FETCH('sprite_params');
-#if (open (LOG, ">>/tmp/sprite.log"))
-#{
-#	print LOG "execute bind(".join('|',@{$params}).")\n(".join('|',@bind_values).")\n";
-#	close LOG;
-#}
 	my @ocolnames;
-
 	for (my $i=0;$i<=$#{$params};$i++)  #ADDED 20000303  FIX QUOTE PROBLEM WITH BINDS.
 	{
 		$params->[$i] =~ s/\'/\'\'/g;
 	}
-
 	my $numParam = $sth->FETCH('NUM_OF_PARAMS');
 
 	if ($params && scalar(@$params) != $numParam)  #CHECK FOR RIGHT # PARAMS.
@@ -863,7 +919,6 @@ sub execute
 	}
 	#my $sqlstr = $sth->{'Statement'};   #CHGD. TO NEXT 20040205 TO PERMIT JOINS.
 	my $sqlstr = $sth->FETCH('sprite_statement');
-
 	#NEXT 8 LINES ADDED 20010911 TO FIX BUG WHEN QUOTED VALUES CONTAIN "?"s.
 	$sqlstr =~ s/\\\'/\x02\^3jSpR1tE\x02/gs;      #PROTECT ESCAPED DOUBLE-QUOTES.
 	$sqlstr =~ s/\'\'/\x02\^4jSpR1tE\x02/gs;      #PROTECT DOUBLED DOUBLE-QUOTES.
@@ -887,7 +942,6 @@ sub execute
 	my ($spriteref) = $sth->FETCH('sprite_spritedb');
 
 	#CALL JSPRITE TO DO THE SQL!
-
 	my (@resv) = $spriteref->sql($sqlstr);
 	#!!! HANDLE SPRITE ERRORS HERE (SEE SPRITE.PM)!!!
 	my ($retval) = undef;
@@ -947,9 +1001,10 @@ sub execute
 				$origsql =~ s/\s+//g;
 				my $joinfids = $sth->FETCH('sprite_joinfid');
 				my $joinalii = $sth->FETCH('sprite_joinalias');
-				unless ($spriteref->{sprite_CaseFieldNames})
+#				unless ($spriteref->{sprite_CaseFieldNames})  #CHGD. TO NEXT 20040929.
+				$origsql =~ tr/a-z/A-Z/  unless ($spriteref->{sprite_CaseFieldNames});
+				unless ($spriteref->{sprite_CaseTableNames})
 				{
-					$origsql =~ tr/a-z/A-Z/;
 					for (my $i=0;$i<=$#{$joinfids};$i++)
 					{
 						$joinfids->[$i] =~ tr/a-z/A-Z/;
@@ -1004,6 +1059,7 @@ sub execute
 				@ocolnames = split(/\,/, $origsql);
 				my ($tbl,$fld);
 				my (@ocolwhich, %newtypes, %newlens, %newscales);
+
 I1:				for (my $i=0;$i<=$#ocolnames;$i++)
 				{
 					($tbl,$fld) = split(/\./, $ocolnames[$i]);
@@ -1051,12 +1107,23 @@ I1:				for (my $i=0;$i<=$#ocolnames;$i++)
 				$validColumnnames =~ s/\,/\|$tblname[0]\./g;
 				$validColumnnames .= "|$tblname[1].".$joinspriteref->{use_fields}.')';
 				$validColumnnames =~ s/\,/\|$tblname[1]\./g;
-				for (my $i=0;$i<=1;$i++)
+				#DE-ALIAS ALL TABLE-ALIASES IN THE WHERE-CLAUSE.
+				if ($spriteref->{sprite_CaseTableNames})  #CONDITION ADDED 20040929.
 				{
-					$orig_whereclause =~ s/ $joinalii->[$i]\./ $joinfids->[$i]\./g;
+					for (my $i=0;$i<=1;$i++)
+					{
+						$orig_whereclause =~ s/ $joinalii->[$i]\./ $joinfids->[$i]\./gs;
+					}
 				}
-				#NOW, BIND ALL BIND VARIABLES HERE!
+				else
+				{
+					for (my $i=0;$i<=1;$i++)
+					{
+						$orig_whereclause =~ s/ $joinalii->[$i]\./ $joinfids->[$i]\./igs;
+					}
+				}
 
+				#NOW, BIND ALL BIND VARIABLES HERE!
 				$orig_whereclause =~ s/\\\'/\x02\^3jSpR1tE\x02/gs;      #PROTECT ESCAPED DOUBLE-QUOTES.
 				$orig_whereclause =~ s/\'\'/\x02\^4jSpR1tE\x02/gs;      #PROTECT DOUBLED DOUBLE-QUOTES.
 				$orig_whereclause =~ s/\'([^\']*?)\'/
@@ -1068,20 +1135,18 @@ I1:				for (my $i=0;$i<=$#ocolnames;$i++)
 
 				#CONVERT REMAINING QUESTION-MARKS TO BOUND VALUES.
 
-#	my $bindindices = $sth->FETCH('sprite_bi0') || [0..($numParam-1)];
-#	foreach my $i (@$bindindices)
 				for (my $i = 0;  $i < $numParam;  $i++)
 				{
 					$params->[$i] =~ s/\?/\x02\^2jSpR1tE\x02/gs;   #ADDED 20001023 TO FIX BUG WHEN PARAMETER OTHER THAN LAST CONTAINS A "?"!
 					$orig_whereclause =~ s/\?/"'".$params->[$i]."'"/es;
 				}
 				$orig_whereclause =~ s/\x02\^2jSpR1tE\x02/\?/gs;     #ADDED 20001023! - UNPROTECT PROTECTED "?"s.
-
 				my $cond = $spriteref->parse_expression($orig_whereclause, $validColumnnames);
-
+				#$cond =~ s/\$\_\-\>\{\w+\.(\w+)\}/BASE($icolHash{$1})/g;
+				#$cond =~ s/\$\_\-\>\{\w+\.(\w+)\}/\$baseresv\-\>\[\$icolHash\{$1\}\]/g;
+				#$cond =~ s/\$\_\-\>\{\w+\.(\w+)\}/JOIN($jcolHash{$1})/g;
 				$cond =~ s/\$\_\-\>\{$tblname[0]\.(\w+)\}/\$baserow\-\>\[\$icolHash\{$1\}\]/g;
 				$cond =~ s/\$\_\-\>\{$tblname[1]\.(\w+)\}/\$joinrow\-\>\[\$jcolHash\{$1\}\]/g;
-
 				#DONT NEED?$cond =~ s/[\r\n\t]/ /gs;
 
 				#NOW EVAL THE *ORIGINAL* WHERE-CLAUSE CONDITION TO WEED OUT UNDESIRED RECORDS.
@@ -1098,7 +1163,6 @@ J2A:						for ($j=0;$j<$row;$j++)
 							$@ = '';
 							$_ = ($cond !~ /\S/ || eval $cond);
 							next J2A  unless ($_);
-
 							for ($k=0;$k<=$#ocolnames;$k++)
 							{
 								if ($ocolwhich[$k])
@@ -1126,7 +1190,6 @@ J2B:						for ($j=0;$j<$jrow;$j++)
 							$@ = '';
 							$_ = ($cond !~ /\S/ || eval $cond);
 							next J2B  unless ($_);
-
 							for ($k=0;$k<=$#ocolnames;$k++)
 							{
 								if ($ocolwhich[$k])
@@ -1150,9 +1213,6 @@ J2B:						for ($j=0;$j<$jrow;$j++)
 	}
 	else                     #SELECT SELECTED ZERO RECORDS.
 	{
-#		$resv[0] = $spriteref->{lastmsg};  #NEXT 3 CHGD. TO FOLLOWING 6 20020606.
-#		DBI::set_err($sth, ($spriteref->{lasterror} || -402), 
-#				($spriteref->{lastmsg} || 'No matching records found/modified!'));
 		if ($spriteref->{lasterror})
 		{
 			DBI::set_err($sth, $spriteref->{lasterror}, $spriteref->{lastmsg});
@@ -1186,6 +1246,7 @@ J2B:						for ($j=0;$j<$jrow;$j++)
 	my @l = ($#ocolnames >= 0) ? @ocolnames : split(/,/,$spriteref->{use_fields});
 	$sth->STORE('NUM_OF_FIELDS',($#l+1));
 	my (@keyfields) = split(',', $spriteref->{key_fields}); #ADDED 20030520 TO IMPROVE NULLABLE.
+
 	unless ($spriteref->{TYPE})
 	{
 		@{$spriteref->{NAME}} = @l;
@@ -1222,6 +1283,11 @@ J2B:						for ($j=0;$j<$jrow;$j++)
     #$sth->STORE('sprite_rows', ($#resv+1)); # number of rows
 	$sth->{'TYPE'} = \@{$spriteref->{TYPE}};
 	$sth->{'NAME'} = \@{$spriteref->{NAME}};
+	for (my $i=0;$i<=$#{$sth->{'NAME'}};$i++)
+	{
+		$sth->{'NAME'}->[$i] = $spriteref->{ASNAMES}->{$sth->{'NAME'}->[$i]}
+				if ($spriteref->{ASNAMES}->{$sth->{'NAME'}->[$i]});
+	}
 	$sth->{'PRECISION'} = \@{$spriteref->{PRECISION}};
 	$sth->{'SCALE'} = \@{$spriteref->{SCALE}};
 	$sth->{'NULLABLE'} = \@{$spriteref->{NULLABLE}};
@@ -1241,7 +1307,8 @@ sub fetchrow_arrayref
 	my $data = $sth->FETCH('driver_data');
 	my $row = shift @$data;
 
-	return undef  if (!$row);
+	#return undef  if (!$row || !scalar(@$row));   #CHGD. TO NEXT 20040913 TO AVOID _FBAV ERROR IF NO ROWS RETURNED!
+	return undef  if (!$row || !scalar(@$row));
 	#my ($longreadlen) = $sth->{Database}->FETCH('LongReadLen');  #CHGD. TO NEXT 20020606 AS WORKAROUND FOR DBI::PurePerl;
 	my ($longreadlen) = $sth->{Database}->FETCH('LongReadLen') || 0;
 	if ($longreadlen > 0)
@@ -1267,7 +1334,9 @@ sub fetchrow_arrayref
 			map { $_ =~ s/\s+$//; } @$row;
 		}
 	}
-	return $sth->_set_fbav($row);
+	my $myres;
+	eval { $myres = $sth->_set_fbav($row); };
+	return $myres;
 }
 
 *fetch = \&fetchrow_arrayref; # required alias for fetchrow_arrayref
