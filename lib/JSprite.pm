@@ -477,7 +477,7 @@ eval {require 'OraSpriteFns.pl';};
 use vars qw ($VERSION $LOCK_SH $LOCK_EX);
 ##--
 
-$JSprite::VERSION = '5.56';
+$JSprite::VERSION = '5.8';
 $JSprite::LOCK_SH = 1;
 $JSprite::LOCK_EX = 2;
 
@@ -501,7 +501,7 @@ sub new
     my $self;
 
     $self = {
-                commands     => 'select|update|delete|alter|insert|create|drop|truncate',
+                commands     => 'select|update|delete|alter|insert|create|drop|truncate|primary_key_info',
 #                column       => '[A-Za-z0-9\~\x80-\xFF][\w\x80-\xFF]+',  #CHGD. TO NEXT 20020214 TO ALLOW 1-LETTER FIELD NAMES!!!! (HOW DID THIS GO ON FOR SO LONG?)
                 column       => '[A-Za-z0-9][\w\x80-\xFF]*',
 		_select      => '[\w\x80-\xFF\*,\s\~]+',
@@ -2294,6 +2294,49 @@ sub truncate
 	return (-533);	
 }
 
+sub primary_key_info
+{
+	my ($self, $query) = @_;
+	my $table = $query;
+	$table =~ s/^.*\s+(\w+)$/$1/;
+	my $cfr = $self->check_for_reload($table) || -501;
+	return $cfr  if ($cfr < 0);
+		undef %{ $self->{types} };
+		undef %{ $self->{lengths} };
+		$self->{use_fields} = 'CAT,SCHEMA,TABLE_NAME,PRIMARY_KEY';
+		$self->{order} = [ 'CAT', 'SCHEMA', 'TABLE_NAME', 'PRIMARY_KEY' ];
+		$self->{fields}->{CAT} = 1;
+		$self->{fields}->{SCHEMA} = 1;
+		$self->{fields}->{TABLE_NAME} = 1;
+		$self->{fields}->{PRIMARY_KEY} = 1;
+		undef @{ $self->{records} };
+	my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
+		${$self->{types}}{CAT} = 'VARCHAR2';
+		${$self->{types}}{SCHEMA} = 'VARCHAR2';
+		${$self->{types}}{TABLE_NAME} = 'VARCHAR2';
+		${$self->{types}}{PRIMARY_KEY} = 'VARCHAR2';
+		${$self->{lengths}}{CAT} = 50;
+		${$self->{lengths}}{SCHEMA} = 50;
+		${$self->{lengths}}{TABLE_NAME} = 50;
+		${$self->{lengths}}{PRIMARY_KEY} = 50;
+		${$self->{defaults}}{CAT} = undef;
+		${$self->{defaults}}{SCHEMA} = undef;
+		${$self->{defaults}}{TABLE_NAME} = undef;
+		${$self->{defaults}}{PRIMARY_KEY} = undef;
+		${$self->{scales}}{PRIMARY_KEY} = 50;
+		${$self->{scales}}{PRIMARY_KEY} = 50;
+		${$self->{scales}}{PRIMARY_KEY} = 50;
+		${$self->{scales}}{PRIMARY_KEY} = 50;
+	my $results;
+	my $keycnt = scalar(@keyfields);
+	while (@keyfields)
+	{
+		push (@{$results}, [0, 0, $table, shift(@keyfields)]);
+	}
+	unshift (@$results, $keycnt);
+	return $results;
+}
+
 sub delete_rows
 {
     my ($self, $condition) = @_;
@@ -2511,15 +2554,15 @@ sub create
 	{
 		my ($seqfid, $incval, $startval) = ($1, $2, $3);
 
-		$incval = 0  unless ($incval);
-		$startval = 1  unless ($startval);
+		$incval = 1  unless ($incval);
+		$startval = 0  unless ($startval);
 
 		my ($new_file) = $self->get_path_info($seqfid) . '.seq';
-		$new_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
+####		$new_file =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
 		unlink ($new_file)  if ($self->{sprite_forcereplace} && -e $new_file);  #ADDED 20010912.
 		if (open (FILE, ">$new_file"))
 		{
-			print FILE "$incval,$startval\n";
+			print FILE "$startval,$incval\n";
 			close (FILE);
 		}
 		else
@@ -2795,7 +2838,6 @@ sub insert
 	$columns = join(',', @{ $self->{order} })  unless ($columns =~ /\S/);  #JWT
 	#$self->check_for_reload ($table) || return (-501);
 	return (-511)  unless (-w $self->{file});
-#$fieldregex = $self->{fieldregex};
 	unless ($columns =~ /\S/)
 	{
 		#$thefid = $self->{file};
@@ -2803,29 +2845,35 @@ sub insert
 		return $columns  if ($columns =~ /^\-?\d+$/);
 	}
 
-	$values =~ s/\\\\/\x02\^2jSpR1tE\x02/gs;         #PROTECT "\\"  #XCHGD. TO 4 LINES DOWN 20020111
-	#$values =~ s/\\\'|\'\'/\x02\^3jSpR1tE\x02/gs;    #PROTECT '', AND \'. #CHANGED 20000303 TO NEXT 2.
-	$values =~ s/\'\'/\x02\^3jSpR1tE\x02\x02\^3jSpR1tE\x02/gs;    #PROTECT '', AND \'.
-	$values =~ s/\\\'/\x02\^3jSpR1tE\x02/gs;    #PROTECT '', AND \'.
-	#$values =~ s/\\/\x02\^2jSpR1tE\x02/gs;         #PROTECT "\"
-	
-	$values =~ s/\'(.*?)\'/
+	$values =~ s/\\\\/\x02\^2jSpR1tE\x02/gs;    #PROTECT "\\"  #XCHGD. TO 4 LINES DOWN 20020111
+	#$values =~ s/\\\'/\x02\^3jSpR1tE\x02/gs;   #CHGD. TO NEXT 20060720.
+	$values =~ s/\\\'/\x02\^3jSpR1tE\x02/gs;    #PROTECT ESCAPED QUOTES.
+	$values =~ s/\\\"/\x02\^5jSpR1tE\x02/gs;
+
+	1 while ($values =~ s/\(([^\)]*?)\)/
 			my ($j)=$1; 
-			$j=~s|,|\x02\^4jSpR1tE\x02|gs;         #PROTECT "," IN QUOTES.
+			$j=~s|\,|\x02\^4jSpR1tE\x02|gs;         #PROTECT "," IN PARENTHESIS (FUNCTION-CALL ARG-LISTS).
+			"($j\x02\^6jSpR1tE\x02"
+	/egs);
+#	$values =~ s/\'([^\']*?)\'/          #CHGD. TO NEXT 20060720.
+	$values =~ s/([\'\"])([^\1]*?)\1/
+			my ($j)=$2; 
+			$j=~s|\,|\x02\^4jSpR1tE\x02|gs;         #PROTECT "," IN QUOTES.
 			"'$j'"
 	/egs;
+	$values =~ s/\x02\^6jSpR1tE\x02/\)/gs;
 
 	my $x;
-	my @values = split(/,/,$values);
+	my @values = split(/\,\s*/,$values);
 	$values = '';
 	for $i (0..$#values)
 	{
 		$values[$i] =~ s/^\s+//s;      #STRIP LEADING & TRAILING SPACES.
 		$values[$i] =~ s/\s+$//s;
-		$values[$i] =~ s/\x02\^3jSpR1tE\x02/\'/gs;   #RESTORE PROTECTED SINGLE QUOTES HERE.
-		#$values[$i] =~ s/\x02\^2jSpR1tE\x02/\\/gs;   #RESTORE PROTECTED SLATS HERE.  #CHGD TO NEXT 20020111
-		$values[$i] =~ s/\x02\^2jSpR1tE\x02/\\\\/gs;   #RESTORE PROTECTED SLATS HERE.
-		$values[$i] =~ s/\x02\^4jSpR1tE\x02/,/gs;    #RESTORE PROTECTED COMMAS HERE.
+		$values[$i] =~ s/\x02\^5jSpR1tE\x02/\\\"/gs;  #RESTORE PROTECTED SINGLE QUOTES HERE.
+		$values[$i] =~ s/\x02\^3jSpR1tE\x02/\\\'/gs;  #RESTORE PROTECTED SINGLE QUOTES HERE.
+		$values[$i] =~ s/\x02\^2jSpR1tE\x02/\\\\/gs;  #RESTORE PROTECTED SLATS HERE.
+		$values[$i] =~ s/\x02\^4jSpR1tE\x02/\,/gs;    #RESTORE PROTECTED COMMAS HERE.
 		if ($values[$i] =~ /^[_a-zA-Z]/s)
 		{
 			if ($values[$i] =~ /\s*(\w+).NEXTVAL\s*$/ 
@@ -3704,16 +3752,20 @@ sub chkcolumnparms   #ADDED 20001218 TO CHECK FUNCTION PARAMETERS FOR FIELD-NAME
 	my ($self) = shift;
 	my ($evalstr) = shift;
 
-	$evalstr =~ s/\\\'|\'\'/\x02\^2jSpR1tE\x02/g;   #PROTECT QUOTES W/N QUOTES.
-	$evalstr =~ s/\\\"|\"\"/\x02\^3jSpR1tE\x02/g;   #PROTECT QUOTES W/N QUOTES.
+#	$evalstr =~ s/\\\'|\'\'/\x02\^2jSpR1tE\x02/g;   #PROTECT QUOTES W/N QUOTES.
+#	$evalstr =~ s/\\\"|\"\"/\x02\^3jSpR1tE\x02/g;   #PROTECT QUOTES W/N QUOTES.
+	$evalstr =~ s/\\\'/\x02\^2jSpR1tE\x02/gs;   #PROTECT ESCAPED QUOTES.
+	$evalstr =~ s/\\\"/\x02\^3jSpR1tE\x02/gs;   #PROTECT ESCAPED QUOTES.
 	
 	my $i = -1;
 	my (@strings);     #PROTECT ANYTHING BETWEEN QUOTES (FIELD NAMES IN LITERALS).
 	$evalstr =~ s/([\'\"])([^\1]*?)\1/
+			my ($one, $two) = ($1, $2);
 			++$i;
-			$strings[$i] = "$1$2$1";
+			$two =~ s|([\'\"])|$1$1|g;
+			$strings[$i] = "$one$two$one";
 			"\x02\^4jSpR1tE\x02$i";
-	/eg;
+	/egs;
 
 	#FIND EACH FIELD NAME PARAMETER & REPLACE IT WITH IT'S VALUE || NAME || EMPTY-STRING.
 	#$evalstr =~ s/($fieldregex)/   #CHGD. TO NEXT 20020530 + REMVD THIS VBLE.
@@ -3725,7 +3777,7 @@ sub chkcolumnparms   #ADDED 20001218 TO CHECK FUNCTION PARAMETERS FOR FIELD-NAME
 				#$res ||= '""';    #CHGD. TO NEXT (20020225)!
 				$res = '"'.$res.'"'  unless (${$self->{types}}{$one} =~ m#$NUMERICTYPES#i);
 				$res;
-	/eig;
+	/eigs;
 
 	$evalstr =~ s/\x02\^4jSpR1tE\x02(\d+)/$strings[$1]/g;   #UNPROTECT LITERALS
 	$evalstr =~ s/\x02\^3jSpR1tE\x02/\\\'/g;                #UNPROTECT QUOTES.

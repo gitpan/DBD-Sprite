@@ -17,7 +17,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 
 #);
-$VERSION = '0.56';
+$VERSION = '0.58';
 
 # Preloaded methods go here.
 
@@ -378,6 +378,7 @@ sub prepare
 	#$sqlstr =~ /(into|from|update|table) \s*(\w+)/gi;  #CHANGED 20000831 TO NEXT LINE!
 	#$sqlstr =~ /(into|from|update|table|sequence)\s+(\w+)/is;  #CHGD. 20040305 TO NEXT.
 	my ($spritefid) = $2  if ($sqlstr =~ /(into|from|update|table|sequence)\s+(\w+)/is);
+	$spritefid = $1  if ($sqlstr =~ /primary_key_info\s+(\w+)/ios);
 	unless ($spritefid)   #NEXT 5 ADDED 20000831!
 	{
 		DBI::set_err($resptr, -1, "Prepare:(bad sql) Must specify a table name!");
@@ -638,7 +639,7 @@ outer:				foreach my $j (keys %addfields)
 	$sqlstr =~ s/\x02\^4jSpR1tE\x02/\"\"/gs;   #UNPROTECT QUOTES WITHIN QUOTES!
 	$sqlstr =~ s/\x02\^3jSpR1tE\x02/\'\'/gs;
 	$csr->STORE('sprite_statement', $sqlstr);
-    return ($csr);
+	return ($csr);
 }
 
 sub parseParins  #RECURSIVELY ASSIGN ALL PARENTHAASZED EXPRESSIONS TO AN ARRAY TO PROTECT FROM OTHER REGICES.
@@ -758,7 +759,16 @@ sub table_info
 	my $sth = $dbh->prepare('select TABLE_NAME from USER_TABLES') 
 			or return undef;
 	$sth->execute or return undef;
-	$sth;
+	return $sth;
+}
+
+sub primary_key_info   #ADDED 20060613 TO SUPPORT DBI primary_key/primary_key_info FUNCTIONS!
+{
+	my ($dbh, $cat, $schema, $tablename) = @_;
+	my $sth = $dbh->prepare("PRIMARY_KEY_INFO $tablename") 
+			or return undef;
+	$sth->execute() or return undef;
+	return $sth;
 }
 
 sub type_info_all  #ADDED 20010312, BORROWED FROM "Oracle.pm".
@@ -956,7 +966,7 @@ sub execute
 		$retval = $resv[0];
 		my $dB = $sth->{Database};
 		#if ($dB->FETCH('AutoCommit') == 1 && $sth->FETCH('Statement') !~ /^\s*select/i)   #CHGD. TO NEXT 20040205 TO PERMIT JOINS.
-		if ($sth->FETCH('sprite_statement') !~ /^\s*select/i)
+		if ($sth->FETCH('sprite_statement') !~ /^\s*(?:select|primary_key_info)/i)
 		{
 			if ($dB->FETCH('AutoCommit') == 1)
 			{
@@ -1242,7 +1252,6 @@ J2B:						for ($j=0;$j<$jrow;$j++)
     #### NOTE #### IF THIS FAILS, IT PROBABLY NEEDS TO BE "sprite_rows"?
 
 	shift @resv;   #REMOVE 1ST COLUMN FROM DATA RETURNED (THE SPRITE RESULT).
-
 	my @l = ($#ocolnames >= 0) ? @ocolnames : split(/,/,$spriteref->{use_fields});
 	$sth->STORE('NUM_OF_FIELDS',($#l+1));
 	my (@keyfields) = split(',', $spriteref->{key_fields}); #ADDED 20030520 TO IMPROVE NULLABLE.
@@ -1306,7 +1315,6 @@ sub fetchrow_arrayref
 	my($sth) = @_;
 	my $data = $sth->FETCH('driver_data');
 	my $row = shift @$data;
-
 	#return undef  if (!$row || !scalar(@$row));   #CHGD. TO NEXT 20040913 TO AVOID _FBAV ERROR IF NO ROWS RETURNED!
 	return undef  if (!$row || !scalar(@$row));
 	#my ($longreadlen) = $sth->{Database}->FETCH('LongReadLen');  #CHGD. TO NEXT 20020606 AS WORKAROUND FOR DBI::PurePerl;
@@ -1336,6 +1344,7 @@ sub fetchrow_arrayref
 	}
 	my $myres;
 	eval { $myres = $sth->_set_fbav($row); };
+#	$myres = $sth->_set_fbav($row);
 	return $myres;
 }
 
@@ -1343,7 +1352,7 @@ sub fetchrow_arrayref
 sub rows
 {
 	my($sth) = @_;
-	return $sth->FETCH('driver_rows') or $sth->FETCH('sprite_rows');
+	return $sth->FETCH('driver_rows') or $sth->FETCH('sprite_rows') or $sth->{drv_rows};
 }
 #### NOTE #### IF THIS FAILS, IT PROBABLY NEEDS TO BE "sprite_rows"?
 

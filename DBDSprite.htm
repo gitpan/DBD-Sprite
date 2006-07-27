@@ -1024,6 +1024,21 @@ Revision history for Perl extension DBD::Sprite.
 	<LI>0.56  Sat May 14 2005
 		<BR>- Fixed bug that prevented sorting from working and returning all records 
 		  when doing a SELECT DISTINCT with ORDER BY on a single column.
+	<LI>0.57  Tue Jun 14 2006
+		<BR>- Fixed bug involving reversal of the increment and start values of 
+		  sequences in the "Create Sequence" command.  Should work now, even 
+		  though the variable names appear reverse in "NEXTVAL" code.
+		<BR>- Added code to support DBI's "primary_key_info" query.
+	<LI>0.57  Tue Jun 14 2006
+		<BR>- Fixed bug involving reversal of the increment and start values of 
+		  sequences in the "Create Sequence" command.  Should work now, even 
+		  though the variable names appear reverse in "NEXTVAL" code.
+		<BR>- Added code to support DBI's "primary_key_info" query.
+	<LI>0.58  Thu Jul 20 2006
+		<BR>- Fixed bug that prevented empty-strings (two quotes in succession) as 
+		  arguments to functions (caught by me).
+		<BR>- Fixed bug that had sequence values and increments reversed.
+		<BR>- Added "primary_key_info()" DBI function.
 </UL>
 
 <H1><A NAME="TODO">TODO</A></H1>

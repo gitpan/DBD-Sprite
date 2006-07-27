@@ -13,7 +13,7 @@ $^W = 1;
 # Change 1..1 below to 1..last_test_to_print .
 # (It may become useful if the test is moved to ./t subdirectory.)
 
-BEGIN { $| = 1; print "1..28\n"; }
+BEGIN { $| = 1; print "1..29\n"; }
 END {print "not ok 1\n" unless $loaded;}
 use DBD::Sprite;
 $loaded = 1;
@@ -201,9 +201,13 @@ my ($nextval, $sysdate) = $sth->fetchrow_array();
 		print "not ok 28 ($sysdate not valid)\n";
 $sth->finish();
 $dbh->commit();
+
+my (@keys) = $dbh->primary_key(undef,undef,'testtable');
+(!$#keys && $keys[0] eq 'NUMFIELD') ? print "ok 29\n" :
+		print "not ok 29 (primary key ($keys[0]) != 'NUMFIELD')\n";
 $dbh->disconnect();
 
-print "..done: 28 tests completed.\n";
+print "..done: 29 tests completed.\n";
 
 sub reverseUP
 {
