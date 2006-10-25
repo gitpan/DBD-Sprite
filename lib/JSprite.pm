@@ -477,12 +477,12 @@ eval {require 'OraSpriteFns.pl';};
 use vars qw ($VERSION $LOCK_SH $LOCK_EX);
 ##--
 
-$JSprite::VERSION = '5.8';
+$JSprite::VERSION = '5.9';
 $JSprite::LOCK_SH = 1;
 $JSprite::LOCK_EX = 2;
 
-my $NUMERICTYPES = '^(NUMBER|FLOAT|DOUBLE|INT|INTEGER|NUM|AUTONUMBER|AUTO|AUTO_INCREMENT)$';       #20000224
-my $STRINGTYPES = '^(VARCHAR2|CHAR|VARCHAR|DATE|LONG|BLOB|MEMO|RAW)$';
+my $NUMERICTYPES = '^(NUMBER|FLOAT|DOUBLE|INT|INTEGER|NUM|AUTONUMBER|AUTO|AUTO_INCREMENT|DECIMAL|TINYINT|BIGINT|DOUBLE)$';       #20000224
+my $STRINGTYPES = '^(VARCHAR2|CHAR|VARCHAR|DATE|LONG|BLOB|MEMO|RAW|TEXT)$';
 #my $BLOBTYPES = '^(LONG|BLOB|MEMO)$';
 my $BLOBTYPES = '^(LONG.*|.*?LOB|MEMO|.FILE)$';
 my $REFTYPES = '^(LONG.*|.FILE)$';   #SUPPORT FILE-REFERENCING FOR THESE BLOB-TYPES.  (OTHERS ARE STORED INLINE).   20010125
@@ -718,7 +718,6 @@ sub get_path_info
     ($path, $name) = $file =~ m|(.*?)([^$separator]+)$|o;
 
 	$name =~ tr/A-Z/a-z/  unless ($self->{CaseTableNames});  #JWT:TABLE-NAMES ARE NOW CASE-INSENSITIVE!
-
     if ($path) {
 	$full  = $file;
     } else {
@@ -3123,7 +3122,6 @@ sub write_file
     my ($self, $new_file) = @_;
     my ($i, $j, $status, $loop, $record, $column, $value, $fields, $record_string);
 	my (@keyfields) = split(',', $self->{key_fields});  #JWT: PREVENT DUP. KEYS.
-
 	return ($self->display_error (-531) * -531)
 			if (($self->{_write} =~ /^xml/i) && $self->{CBC} && $self->{sprite_Crypt} <= 2);
 

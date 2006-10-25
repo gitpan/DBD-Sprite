@@ -53,6 +53,12 @@ sub COS
 	return cos(shift);
 }
 
+sub CURDATE
+{
+	my $fmt = shift || 'yyyy-mm-dd';
+	return TO_CHAR(SYSTIME, $fmt)
+}
+
 sub DAYS_BETWEEN   #SPRITE-ONLY FUNCTION.
 {
 	my ($d1, $d2) = @_;
@@ -186,6 +192,18 @@ sub MONTHS_BETWEEN   #ASSUMES 30-DAY MONTHS - APPROXIMATES THE ORACLE FUNCTION!
 	my ($d1, $d2) = @_;
 	my ($secbtn) = abs($d2 - $d1);
 	return $secbtn / (30*86400);
+}
+
+sub NOW
+{
+	my $fmt = shift || 'yyyy-mm-dd hh:mi:ss';
+	return TO_CHAR(SYSTIME, $fmt)
+}
+
+sub now
+{
+	my $fmt = shift || 'yyyy-mm-dd hh:mi:ss';
+	return TO_CHAR(SYSTIME, $fmt)
 }
 
 sub NVL    #CHGD. TO LAST LINE 20040325 TO MAKE WORK LIKE ORACLE!?

@@ -17,7 +17,7 @@ use vars qw($VERSION $err $errstr $state $sqlstate $drh $i $j $dbcnt);
 #@EXPORT = qw(
 
 #);
-$VERSION = '0.58';
+$VERSION = '0.59';
 
 # Preloaded methods go here.
 
@@ -152,6 +152,7 @@ sub connect {
 				shift (@dbinputs);
 			}
 		}
+#foreach my $x (keys %{$attr}) { print STDERR "-attr($x)=$attr->{$x}=\n"; };
 		if ($dbinputs[1] eq $dbuser)
 		{
 			#if ($dbinputs[2] eq crypt($dbpswd, substr($dbuser,0,2)))
@@ -306,7 +307,6 @@ use vars qw($imp_data_size);
 sub last_insert_id     #MUST BE CALLED W/"$dbh->func"!   ADDED 20040407 TO SUPPORT NEW DBI FUNCTION.
 {
 	my ($resptr, $cat, $schema, $tablename, $seqfield) = @_;
-
 	return $resptr->{sprite_insertid}  if (defined $resptr->{sprite_insertid} && $resptr->{sprite_insertid} =~ /\d$/);
 	my $mycsr;
 	if ($mycsr = $resptr->prepare("select ${seqfield}.CURRVAL from DUAL"))
@@ -316,7 +316,8 @@ sub last_insert_id     #MUST BE CALLED W/"$dbh->func"!   ADDED 20040407 TO SUPPO
 		{
 			my ($lastseq) = $mycsr->fetchrow_array();
 			$mycsr->finish();
-			return $lastseq  if ($lastseq =~ /\d$/);
+			###return $lastseq  if ($lastseq =~ /\d$/);  #CHGD. TO NEXT 20061006 TO HANDLE ERRORS, IE. WHEN SEQ IS AN AUTONUMBER, NOT A SEQ!
+			return $lastseq  if ($lastseq =~ /\d$/ && $lastseq > 0);
 		}
 	}
 	if ($seqfield)    #IF ALL ELSE FAILS, FETCH A DESCENDING LIST OF VALUES FOR THE FIELD THE SEQUENCE WAS INSERTED INTO (USER MUST SPECIFY THE FIELD!)
@@ -355,7 +356,6 @@ sub prepare
 {
 	my ($resptr, $sqlstr, $attribs) = @_;
 	my ($indx, @QS);
-
 	local ($_);
 	#$sqlstr =~ s/\n/ /g;  #REMOVED 20011107.
 	
@@ -367,6 +367,7 @@ sub prepare
 		'Statement' => $sqlstr,
 	});
 
+	my ($spritefid);
 	$resptr->STORE('sprite_last_prepare_sql', $sqlstr);
 	$csr->STORE('sprite_fetchcnt', 0);
 	$csr->STORE('sprite_reslinev','');
@@ -377,14 +378,19 @@ sub prepare
 				$QS[$indx] = "$1$2"; "\$QS\[$indx]"/e);
 	#$sqlstr =~ /(into|from|update|table) \s*(\w+)/gi;  #CHANGED 20000831 TO NEXT LINE!
 	#$sqlstr =~ /(into|from|update|table|sequence)\s+(\w+)/is;  #CHGD. 20040305 TO NEXT.
-	my ($spritefid) = $2  if ($sqlstr =~ /(into|from|update|table|sequence)\s+(\w+)/is);
+	$spritefid = $2  if ($sqlstr =~ /(into|from|update|table|sequence)\s+(\w+)/is);
 	$spritefid = $1  if ($sqlstr =~ /primary_key_info\s+(\w+)/ios);
+	unless ($spritefid)   #ADDED 20061010 TO SUPPORT "select fn" (like MySQL, et al.)
+	{
+		$spritefid = 'DUAL'  if ($sqlstr =~ s/^(\s*select\s+\w+\s*)(\(.*\))?$/$1$2 from DUAL/is);
+	}
+	
 	unless ($spritefid)   #NEXT 5 ADDED 20000831!
 	{
 		DBI::set_err($resptr, -1, "Prepare:(bad sql) Must specify a table name!");
 		return undef;
 	}
-	$spritefid =~ tr/A-Z/a-z/  unless ($resptr->{sprite_attrhref}->{CaseTableNames});
+	$spritefid =~ tr/A-Z/a-z/  unless ($resptr->{sprite_attrhref}->{sprite_CaseTableNames});
 	$csr->STORE('sprite_spritefid', $spritefid);
 
 	my $join = 0;
@@ -408,7 +414,7 @@ sub prepare
 		{
 			($joinfid[$i], $joinalias[$i]) = split(/\s+/, $joinfids[$i]);
 			$joinfid[$i] ||= $joinfids[$i];
-			$joinfid[$i] =~ tr/A-Z/a-z/  unless ($resptr->{sprite_attrhref}->{CaseTableNames});
+			$joinfid[$i] =~ tr/A-Z/a-z/  unless ($resptr->{sprite_attrhref}->{sprite_CaseTableNames});
 		}
 		$csr->STORE('sprite_joinfid', \@joinfid);
 		$csr->STORE('sprite_joinalias', \@joinalias);
@@ -656,6 +662,7 @@ sub parseParins  #RECURSIVELY ASSIGN ALL PARENTHAASZED EXPRESSIONS TO AN ARRAY T
 sub commit
 {
 	my ($dB) = shift;
+
 	if ($dB->FETCH('AutoCommit') && $dB->FETCH('Warn'))
 	{
 		warn ('Commit ineffective while AutoCommit is ON!');
@@ -667,6 +674,7 @@ sub commit
 	{
 		next  unless (defined($dB->{'sprite_SpritesOpen'}->{$_}));
 		next  if (/^(USER|ALL)_TABLES$/i);
+		next  unless (defined(${$dB->{'sprite_SpritesOpen'}->{$_}}));
 		$commitResult = ${$dB->{'sprite_SpritesOpen'}->{$_}}->commit($_);
 		return undef  if (!defined($commitResult) || $commitResult <= 0);
 	}
@@ -683,11 +691,12 @@ sub rollback
 		return 1;
 	}
 	
-	foreach (keys %{$dB->{sprite_SpritesOpen}})
+	foreach my $s (keys %{$dB->{sprite_SpritesOpen}})
 	{
-		next  unless (defined($dB->{'sprite_SpritesOpen'}->{$_}));
-		next  if (/^(USER|ALL)_TABLES$/i);
-		${$dB->{'sprite_SpritesOpen'}->{$_}}->rollback($_);
+		next  unless (defined($dB->{'sprite_SpritesOpen'}->{$s}));
+		next  if ($s =~ /^(USER|ALL)_TABLES$/i);
+		next  unless (defined(${$dB->{'sprite_SpritesOpen'}->{$s}}));
+		${$dB->{'sprite_SpritesOpen'}->{$s}}->rollback($s);
 	}
 	return 1;
 }
@@ -776,21 +785,21 @@ sub type_info_all  #ADDED 20010312, BORROWED FROM "Oracle.pm".
 	my ($dbh) = @_;
 	my $names =
 	{
-		TYPE_NAME		=> 0,
-				DATA_TYPE		=> 1,
-				COLUMN_SIZE		=> 2,
-				LITERAL_PREFIX	=> 3,
-				LITERAL_SUFFIX	=> 4,
-				CREATE_PARAMS		=> 5,
-				NULLABLE		=> 6,
-				CASE_SENSITIVE	=> 7,
-				SEARCHABLE		=> 8,
-				UNSIGNED_ATTRIBUTE	=> 9,
-				FIXED_PREC_SCALE	=>10,
-				AUTO_UNIQUE_VALUE	=>11,
-				LOCAL_TYPE_NAME	=>12,
-				MINIMUM_SCALE		=>13,
-				MAXIMUM_SCALE		=>14,
+			TYPE_NAME		=> 0,
+			DATA_TYPE		=> 1,
+			COLUMN_SIZE		=> 2,
+			LITERAL_PREFIX	=> 3,
+			LITERAL_SUFFIX	=> 4,
+			CREATE_PARAMS		=> 5,
+			NULLABLE		=> 6,
+			CASE_SENSITIVE	=> 7,
+			SEARCHABLE		=> 8,
+			UNSIGNED_ATTRIBUTE	=> 9,
+			FIXED_PREC_SCALE	=>10,
+			AUTO_UNIQUE_VALUE	=>11,
+			LOCAL_TYPE_NAME	=>12,
+			MINIMUM_SCALE		=>13,
+			MAXIMUM_SCALE		=>14,
 	}
 	;
 	# Based on the values from Oracle 8.0.4 ODBC driver
@@ -798,31 +807,31 @@ sub type_info_all  #ADDED 20010312, BORROWED FROM "Oracle.pm".
 	$names,
 			[ 'LONG RAW', -4, '2147483647', '\'', '\'', undef, 1, '0', '0',
 			undef, '0', undef, undef, undef, undef
-	],
+			],
 			[ 'RAW', -2, 255, '\'', '\'', 'max length', 1, '0', 3,
 			undef, '0', undef, undef, undef, undef
-	],
+			],
 			[ 'LONG', -1, '2147483647', '\'', '\'', undef, 1, 1, '0',
 			undef, '0', undef, undef, undef, undef
-	],
+			],
 			[ 'CHAR', 1, 255, '\'', '\'', 'max length', 1, 1, 3,
 			undef, '0', '0', undef, undef, undef
-	],
+			],
 			[ 'NUMBER', 3, 38, undef, undef, 'precision,scale', 1, '0', 3,
 			'0', '0', '0', undef, '0', 38
-	],
+			],
 			[ 'AUTONUMBER', 4, 38, undef, undef, 'precision,scale', 1, '0', 3,
 			'0', '0', '0', undef, '0', 38
-	],
+			],
 			[ 'DOUBLE', 8, 15, undef, undef, undef, 1, '0', 3,
 			'0', '0', '0', undef, undef, undef
-	],
+			],
 			[ 'DATE', 11, 19, '\'', '\'', undef, 1, '0', 3,
 			undef, '0', '0', undef, '0', '0'
 			],
 			[ 'VARCHAR2', 12, 2000, '\'', '\'', 'max length', 1, 1, 3,
 			undef, '0', '0', undef, undef, undef
-	]
+			]
 	];
 	return $ti;
 }
@@ -852,7 +861,7 @@ sub rows
 
 sub DESTROY   #ADDED 20001108 
 {
-    my($drh) = shift;
+	my($drh) = shift;
     
 	if ($drh->FETCH('AutoCommit') == 1)
 	{
@@ -883,6 +892,17 @@ my (%typehash) = (
 	'BOOLEAN' => -7,    #ADDED 20000308!
 	'BLOB'	=> 113,     #ADDED 20020110!
 	'MEMO'	=> -1,      #ADDED 20020110!
+
+	'DATE' => 9,
+	'REAL' => 7,
+	'TINYINT' => -6,
+	'NCHAR' => -8,
+	'NVARCHAR' => -9,
+	'NTEXT' => -10,
+	'SMALLDATETIME' => 93,
+	'BIGINT' => -5,
+	'DECIMAL' => 3,
+	'INTEGER' => 4,
 );
 
 $DBD::Sprite::st::imp_data_size = 0;
@@ -1263,7 +1283,7 @@ J2B:						for ($j=0;$j<$jrow;$j++)
 		{
 			if (defined ${$spriteref->{types}}{$l[$i]})
 			{
-				${$spriteref->{TYPE}}[$i] = $typehash{${$spriteref->{types}}{$l[$i]}};
+				${$spriteref->{TYPE}}[$i] = $typehash{"\U${$spriteref->{types}}{$l[$i]}\E"};
 				${$spriteref->{PRECISION}}[$i] = ${$spriteref->{lengths}}{$l[$i]};
 				${$spriteref->{SCALE}}[$i] = ${$spriteref->{scales}}{$l[$i]};
 			}
@@ -1898,8 +1918,8 @@ I<Return Value>
 
 	Although DBD::Sprite supports the following datatypes:
 		NUMBER FLOAT DOUBLE INT INTEGER NUM CHAR VARCHAR VARCHAR2 
-		DATE LONG BLOB and MEMO, there are really only 3 basic datatypes 
-		(NUMBER, CHAR, and VARCHAR).  This is because Perl treates 
+		DATE LONG BLOB and MEMO, there are really only 4 basic datatypes 
+		(NUMBER, CHAR, VARCHAR, and BLOB).  This is because Perl treates 
 		everything as simple strings.  The first 5 are all treated as "numbers" 
 		by Perl for sorting purposes and the rest as strings.  This is seen 
 		when sorting, ie NUMERIC types sort as 1,5,10,40,200, whereas 

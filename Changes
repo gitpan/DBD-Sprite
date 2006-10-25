@@ -283,6 +283,21 @@ Revision history for Perl extension DBD::Sprite.
 	  "where FIELD like 'abc%'".  Default is false.
 	- Fixed bug which prevented the argument to a "like" expression from working 
 	  if it contained an escaped single-quote.
+0.52	-not released.
+0.53  Wed Sep 29
+	- Fixed a bug affecting joins where selects without fields, ie. select from 
+	  table.. failed.
+	- Fixed another bug affecting joins when queries failed unless both 
+	  CaseTableNames and CaseFieldNames were set if field names were lower-case.
+0.54  Wed Nov 10
+	- Fixed bug involving misinterpretation of the DBI::set_err() function which 
+	  caused a null warning to sometimes be issued by perfectly successfull 
+	  "Prepare" statements.  Changed the 2nd argument to DBI::set_err() from 
+	  zero to undef when clearing error status.  Caught by Steven Bray and me.
+	- Changed all (misspelled) references to the Oracle-ish function "CURVAL"
+	  to "CURRVAL".  Caught by Steven Bray.
+	- Fixed variable declaration buglet which "masked earlier declaration".
+	  Caught by Steven Bray.  Thanks, Steven.
 0.55	 Fri Apr 29 2005
 	- Fixed bug that caused single-quotes enclosed in variables bound to 
 	  placeholders to fail and or seg-fault.
@@ -302,3 +317,14 @@ Revision history for Perl extension DBD::Sprite.
 	  arguments to functions (caught by me).
 	- Fixed bug that had sequence values and increments reversed.
 	- Added "primary_key_info()" DBI function.
+0.59  Sat Oct 21 2006
+	- Fixed bug that prevented last_insert_id() from working with AUTONUMBER 
+	  fields.
+	- Added MySQL-like "select fn()" capability.  Previously, one had to use 
+	  the Oracle-ish "select fn() from DUAL".
+	- Fixed CaseTableNames bug.
+	- Fixex problem that caused warning message when doing a $dB->disconnect() 
+	  when using AutoCommit.
+	- Added several numeric datatype names and mapped them to the existing 
+	  numeric types.
+	- Added 2 MySQL-ish functions:  CURDATE, NOW (and now).
